@@ -13,6 +13,7 @@ import { queueContact } from "@/lib/offline-db";
 import { syncNow } from "@/lib/sync";
 import { summarize } from "@/api/ai";
 import { ocrImageBlob } from "@/lib/ocr";
+import { parseVoiceTranscript, VOICE_FIELD_LABELS, type VoiceFields } from "@/lib/voiceParse";
 
 type Step = 1 | 2 | 3;
 
@@ -89,6 +90,7 @@ export default function CapturePage() {
   const [voice, setVoice] = useState<PendingMedia>({});
   const [qr, setQr] = useState<ParsedCard | null>(null);
   const [ocrInfo, setOcrInfo] = useState<string | null>(null);
+  const [voiceInfo, setVoiceInfo] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [autoSummary, setAutoSummary] = useState<{ summary: string; phrases: string[] } | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -193,10 +195,39 @@ export default function CapturePage() {
 
   async function handleTranscript(text: string) {
     setTranscript(text);
+
+    // 1) Raw transcript → goes into the Note field, so it's visible on the contact card.
     setForm((f) => ({
       ...f,
       note: f.note ? f.note + "\n\n" + text : text,
     }));
+
+    // 2) Parse the transcript heuristically and fill any still-empty fields
+    //    (never overwrite what OCR / QR / user already provided).
+    const parsed: VoiceFields = parseVoiceTranscript(text);
+    const filled: string[] = [];
+    setForm((f) => {
+      const next = { ...f };
+      (Object.keys(parsed) as Array<keyof VoiceFields>).forEach((k) => {
+        const v = parsed[k];
+        if (v === undefined || v === null || v === "") return;
+        // Target form key (everything 1-to-1 except status/contact_type, which exist on form).
+        const formKey = k as keyof FormState;
+        const current = next[formKey];
+        if (current === "" || current === undefined || current === null) {
+          (next as Record<string, unknown>)[formKey] = v;
+          filled.push(VOICE_FIELD_LABELS[k] ?? String(k));
+        }
+      });
+      return next;
+    });
+    if (filled.length > 0) {
+      setVoiceInfo(`Голос заполнил: ${filled.join(", ")}`);
+    } else if (text.trim()) {
+      setVoiceInfo("Текст добавлен в заметку. Поля заполните вручную.");
+    }
+
+    // 3) Summarize asynchronously (best-effort, extractive).
     if (text.trim().length >= 20) {
       try {
         const s = await summarize(text);
@@ -377,6 +408,11 @@ export default function CapturePage() {
             {ocrInfo && (
               <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-900">
                 <ScanLine size={14} className="inline mr-1" /> {ocrInfo}
+              </div>
+            )}
+            {voiceInfo && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-900">
+                <span className="inline-block mr-1">🎙</span> {voiceInfo}
               </div>
             )}
 
