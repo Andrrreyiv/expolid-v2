@@ -1,11 +1,14 @@
 import logging
+import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import Base, engine
-from app.routers import auth, contacts, exhibitions
+from app.routers import auth, contacts, exhibitions, uploads
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,3 +42,9 @@ async def health() -> dict[str, str]:
 app.include_router(auth.router)
 app.include_router(exhibitions.router)
 app.include_router(contacts.router)
+app.include_router(uploads.router)
+
+# Serve uploaded media (images, voice memos)
+_uploads_dir = Path("/data/uploads") if os.path.isdir("/data") else Path("./uploads")
+_uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
