@@ -12,6 +12,7 @@ import { useAuth } from "@/store/auth";
 import PageHeader from "@/components/PageHeader";
 import PushToggle from "@/components/PushToggle";
 import TeamSection from "@/components/TeamSection";
+import TelegramSection from "@/components/TelegramSection";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
@@ -162,6 +163,8 @@ export default function SettingsPage() {
           <p className="font-semibold text-slate-900">Уведомления</p>
           <PushToggle />
         </section>
+
+        <TelegramSection />
 
         <section className="bg-white border border-slate-200 rounded-xl p-4">
           <p className="font-semibold text-slate-900">Аккаунт</p>

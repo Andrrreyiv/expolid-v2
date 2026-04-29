@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import Base, engine
+from app import telegram_bot
 from app.routers import (
     auth,
     contacts,
@@ -19,6 +20,7 @@ from app.routers import (
     stream,
     tasks,
     team,
+    telegram,
     templates,
     uploads,
 )
@@ -45,6 +47,12 @@ async def on_startup() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("startup: tables ensured")
+    telegram_bot.start_in_background()
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    telegram_bot.stop()
 
 
 @app.get("/api/health")
@@ -64,6 +72,7 @@ app.include_router(dashboard.router)
 app.include_router(exports.router)
 app.include_router(push.router)
 app.include_router(stream.router)
+app.include_router(telegram.router)
 
 # Serve uploaded media (images, voice memos)
 _uploads_dir = Path("/data/uploads") if os.path.isdir("/data") else Path("./uploads")
