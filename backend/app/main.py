@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.database import Base, engine
 from app import telegram_bot
 from app.routers import (
+    ai,
     auth,
     contacts,
     dashboard,
@@ -73,6 +74,7 @@ app.include_router(exports.router)
 app.include_router(push.router)
 app.include_router(stream.router)
 app.include_router(telegram.router)
+app.include_router(ai.router)
 
 # Serve uploaded media (images, voice memos)
 _uploads_dir = Path("/data/uploads") if os.path.isdir("/data") else Path("./uploads")

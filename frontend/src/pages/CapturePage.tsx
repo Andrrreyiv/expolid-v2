@@ -11,6 +11,8 @@ import { createContact, type Contact } from "@/api/contacts";
 import { scanQrFromDataUrl, type ParsedCard } from "@/lib/qr";
 import { queueContact } from "@/lib/offline-db";
 import { syncNow } from "@/lib/sync";
+import { summarize } from "@/api/ai";
+import { ocrImageBlob } from "@/lib/ocr";
 
 type Step = 1 | 2 | 3;
 
@@ -86,6 +88,9 @@ export default function CapturePage() {
   const [person, setPerson] = useState<PendingMedia>({});
   const [voice, setVoice] = useState<PendingMedia>({});
   const [qr, setQr] = useState<ParsedCard | null>(null);
+  const [ocrInfo, setOcrInfo] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState("");
+  const [autoSummary, setAutoSummary] = useState<{ summary: string; phrases: string[] } | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +127,43 @@ export default function CapturePage() {
       // eslint-disable-next-line no-console
       console.warn("qr scan failed", e);
     }
+
+    // OCR pass (browser-side, tesseract.js WASM) — fills any field we still have empty.
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      const ocr = await ocrImageBlob(blob);
+      const fields: Array<keyof FormState> = [
+        "name",
+        "company",
+        "position",
+        "email",
+        "phone",
+        "website",
+        "telegram",
+        "linkedin",
+      ];
+      const filled: string[] = [];
+      setForm((f) => {
+        const next = { ...f };
+        for (const k of fields) {
+          const v = (ocr as unknown as Record<string, unknown>)[k];
+          if (typeof v === "string" && v && !next[k]) {
+            (next as Record<string, unknown>)[k] = v;
+            filled.push(k);
+          }
+        }
+        return next;
+      });
+      if (filled.length > 0) {
+        setOcrInfo(`OCR заполнил: ${filled.join(", ")}`);
+      } else if (ocr.text?.trim()) {
+        setOcrInfo("Текст распознан, но структуры не вышло — заполните вручную.");
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("ocr failed", e);
+    }
+
     setStep(2);
   }
 
@@ -149,13 +191,44 @@ export default function CapturePage() {
     }
   }
 
+  async function handleTranscript(text: string) {
+    setTranscript(text);
+    setForm((f) => ({
+      ...f,
+      note: f.note ? f.note + "\n\n" + text : text,
+    }));
+    if (text.trim().length >= 20) {
+      try {
+        const s = await summarize(text);
+        setAutoSummary(s);
+      } catch {
+        // ignore — best-effort
+      }
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
+      // If we have a transcript or note, run a quick summarize at save time
+      // so that the saved note has [Резюме] line at the top.
+      let finalNote = form.note;
+      const sourceText = transcript || form.note;
+      if (sourceText && sourceText.trim().length >= 30) {
+        try {
+          const s = await summarize(sourceText);
+          if (s.summary && !finalNote.startsWith("[Резюме]")) {
+            finalNote = `[Резюме] ${s.summary}\n\n${finalNote}`.trim();
+          }
+        } catch {
+          // ignore — best-effort
+        }
+      }
       const basePayload: Partial<Contact> = {
         ...form,
+        note: finalNote,
         contact_type: form.contact_type || null,
         card_image_url: card.url ?? null,
         person_image_url: person.url ?? null,
@@ -291,7 +364,21 @@ export default function CapturePage() {
               )}
             </div>
 
-            <VoiceRecorder onRecorded={handleVoice} />
+            <VoiceRecorder onRecorded={handleVoice} onTranscript={handleTranscript} />
+            {autoSummary?.summary && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
+                <p className="font-medium mb-1">Авто-резюме</p>
+                <p>{autoSummary.summary}</p>
+                {autoSummary.phrases.length > 0 && (
+                  <p className="text-amber-700 mt-1">{autoSummary.phrases.slice(0, 5).join(" · ")}</p>
+                )}
+              </div>
+            )}
+            {ocrInfo && (
+              <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-900">
+                <ScanLine size={14} className="inline mr-1" /> {ocrInfo}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-2">
               <Button variant="secondary" onClick={() => setStep(1)}>

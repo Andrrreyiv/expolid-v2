@@ -4,18 +4,39 @@ import { Button } from "@/components/ui/Button";
 
 interface VoiceRecorderProps {
   onRecorded?: (blob: Blob, durationSec: number) => void;
+  onTranscript?: (transcript: string) => void;
   initialBlob?: Blob | null;
 }
 
-export default function VoiceRecorder({ onRecorded, initialBlob }: VoiceRecorderProps) {
+type SR = {
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((e: { results: ArrayLike<{ 0: { transcript: string }; isFinal?: boolean; length: number }>; resultIndex: number }) => void) | null;
+  onerror: ((e: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+};
+
+function getSpeechRecognitionCtor(): { new (): SR } | null {
+  const w = window as unknown as { SpeechRecognition?: { new (): SR }; webkitSpeechRecognition?: { new (): SR } };
+  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
+}
+
+export default function VoiceRecorder({ onRecorded, onTranscript, initialBlob }: VoiceRecorderProps) {
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [blob, setBlob] = useState<Blob | null>(initialBlob ?? null);
   const [error, setError] = useState<string | null>(null);
+  const [liveTranscript, setLiveTranscript] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const recognitionRef = useRef<SR | null>(null);
+  const transcriptRef = useRef("");
 
   useEffect(() => {
     return () => {
@@ -59,7 +80,46 @@ export default function VoiceRecorder({ onRecorded, initialBlob }: VoiceRecorder
       recorderRef.current = rec;
       setRecording(true);
       setSeconds(0);
+      transcriptRef.current = "";
+      setLiveTranscript("");
       timerRef.current = window.setInterval(() => setSeconds((s) => s + 1), 1000);
+
+      // Start browser speech recognition in parallel (best-effort).
+      const Ctor = getSpeechRecognitionCtor();
+      if (Ctor) {
+        try {
+          const sr = new Ctor();
+          sr.continuous = true;
+          sr.interimResults = true;
+          sr.lang = navigator.language?.startsWith("ru") ? "ru-RU" : navigator.language || "en-US";
+          sr.onresult = (e) => {
+            let finalText = transcriptRef.current;
+            let interim = "";
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              const r = e.results[i] as unknown as { 0: { transcript: string }; isFinal?: boolean };
+              const piece = r[0].transcript;
+              if (r.isFinal) {
+                finalText = (finalText + " " + piece).trim();
+              } else {
+                interim += piece;
+              }
+            }
+            transcriptRef.current = finalText;
+            setLiveTranscript((finalText + " " + interim).trim());
+          };
+          sr.onerror = () => { /* swallow — STT is best-effort */ };
+          sr.onend = () => {
+            // Auto-restart while we're still recording (Chrome ends every ~60s).
+            if (recording && recognitionRef.current === sr) {
+              try { sr.start(); } catch { /* ignore */ }
+            }
+          };
+          sr.start();
+          recognitionRef.current = sr;
+        } catch {
+          // ignore
+        }
+      }
     } catch (e) {
       setError("Нет доступа к микрофону");
       // eslint-disable-next-line no-console
@@ -72,13 +132,23 @@ export default function VoiceRecorder({ onRecorded, initialBlob }: VoiceRecorder
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.stop();
     }
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch { /* ignore */ }
+      recognitionRef.current = null;
+    }
     setRecording(false);
+    if (transcriptRef.current.trim()) {
+      onTranscript?.(transcriptRef.current.trim());
+    }
   }
 
   function discard() {
     setBlob(null);
     setSeconds(0);
+    transcriptRef.current = "";
+    setLiveTranscript("");
     onRecorded?.(new Blob(), 0);
+    onTranscript?.("");
   }
 
   function play() {
@@ -121,6 +191,11 @@ export default function VoiceRecorder({ onRecorded, initialBlob }: VoiceRecorder
         <div className="flex items-center gap-2 text-rose-600 text-xs">
           <span className="inline-block w-2 h-2 rounded-full bg-rose-600 animate-pulse" />
           Идёт запись...
+        </div>
+      )}
+      {liveTranscript && (
+        <div className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded p-2 max-h-24 overflow-auto">
+          {liveTranscript}
         </div>
       )}
       {error && <p className="text-rose-600 text-sm">{error}</p>}
