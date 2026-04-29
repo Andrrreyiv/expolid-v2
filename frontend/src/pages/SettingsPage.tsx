@@ -13,6 +13,7 @@ import PageHeader from "@/components/PageHeader";
 import PushToggle from "@/components/PushToggle";
 import TeamSection from "@/components/TeamSection";
 import TelegramSection from "@/components/TelegramSection";
+import TemplatesSection from "@/components/TemplatesSection";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
@@ -158,6 +159,8 @@ export default function SettingsPage() {
         </section>
 
         <TeamSection />
+
+        <TemplatesSection />
 
         <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
           <p className="font-semibold text-slate-900">Уведомления</p>

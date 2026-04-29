@@ -35,11 +35,12 @@ async def create_contact(
     data = payload.model_dump()
     if data.get("exhibition_id") is None and user.active_exhibition_id is not None:
         data["exhibition_id"] = user.active_exhibition_id
+    if data.get("assignee_id") is None:
+        data["assignee_id"] = user.id
     contact = Contact(
         **data,
         organization_id=user.organization_id,
         captured_by_id=user.id,
-        assignee_id=user.id,
     )
     db.add(contact)
     await db.commit()

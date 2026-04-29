@@ -106,6 +106,20 @@ export default function HomePage() {
             label="На активной выст."
             value={stats?.contacts_active_exhibition ?? 0}
           />
+          <KpiCard
+            icon={<Send size={18} className="text-indigo-600" />}
+            label="Среднее до follow-up"
+            value={
+              stats?.avg_followup_hours != null
+                ? formatHours(stats.avg_followup_hours)
+                : "—"
+            }
+            sub={
+              stats?.avg_followup_hours != null && stats.followups_sent > 0
+                ? `по ${stats.followups_sent} отправл.`
+                : undefined
+            }
+          />
         </div>
 
         {stats && stats.contacts_by_status.length > 0 && (
@@ -150,6 +164,12 @@ export default function HomePage() {
   );
 }
 
+function formatHours(h: number): string {
+  if (h < 1) return `${Math.round(h * 60)} мин`;
+  if (h < 48) return `${h.toFixed(1)} ч`;
+  return `${(h / 24).toFixed(1)} д`;
+}
+
 function KpiCard({
   icon,
   label,
@@ -159,7 +179,7 @@ function KpiCard({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: number;
+  value: number | string;
   sub?: string;
   onClick?: () => void;
 }) {

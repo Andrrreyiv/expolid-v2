@@ -1,15 +1,18 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { Home, Users, ListChecks, Settings } from "lucide-react";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Home, Users, ListChecks, Settings, Plus } from "lucide-react";
 import SyncIndicator from "@/components/SyncIndicator";
 
-const tabs = [
+const leftTabs = [
   { to: "/", icon: Home, label: "Главная", end: true },
   { to: "/contacts", icon: Users, label: "Контакты" },
+];
+const rightTabs = [
   { to: "/tasks", icon: ListChecks, label: "Задачи" },
   { to: "/settings", icon: Settings, label: "Настройки" },
 ];
 
 export default function Layout() {
+  const navigate = useNavigate();
   return (
     <div className="min-h-screen flex flex-col">
       <div className="fixed top-2 right-2 z-40">
@@ -19,12 +22,37 @@ export default function Layout() {
         <Outlet />
       </main>
       <nav className="fixed bottom-0 left-0 right-0 border-t border-slate-200 bg-white/95 backdrop-blur z-30">
-        <div className="max-w-md mx-auto grid grid-cols-4">
-          {tabs.map(({ to, icon: Icon, label, end }) => (
+        <div className="max-w-md mx-auto grid grid-cols-5 items-end">
+          {leftTabs.map(({ to, icon: Icon, label, end }) => (
             <NavLink
               key={to}
               to={to}
               end={end}
+              className={({ isActive }) =>
+                `flex flex-col items-center justify-center py-2 text-xs gap-0.5 ${
+                  isActive ? "text-brand" : "text-slate-500"
+                }`
+              }
+            >
+              <Icon size={22} />
+              {label}
+            </NavLink>
+          ))}
+          <button
+            type="button"
+            onClick={() => navigate("/capture")}
+            className="flex flex-col items-center justify-end pb-2 text-xs gap-1 text-brand"
+            aria-label="Записать контакт"
+          >
+            <span className="bg-brand text-white rounded-full w-12 h-12 flex items-center justify-center -mt-6 shadow-lg">
+              <Plus size={26} />
+            </span>
+            <span className="text-[11px]">Записать</span>
+          </button>
+          {rightTabs.map(({ to, icon: Icon, label }) => (
+            <NavLink
+              key={to}
+              to={to}
               className={({ isActive }) =>
                 `flex flex-col items-center justify-center py-2 text-xs gap-0.5 ${
                   isActive ? "text-brand" : "text-slate-500"

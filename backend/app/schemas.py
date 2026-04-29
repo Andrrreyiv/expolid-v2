@@ -102,6 +102,7 @@ class ContactBase(BaseModel):
 
 class ContactIn(ContactBase):
     exhibition_id: int | None = None
+    assignee_id: int | None = None
     card_image_url: str | None = None
     person_image_url: str | None = None
     voice_url: str | None = None
@@ -109,7 +110,7 @@ class ContactIn(ContactBase):
 
 
 class ContactUpdate(ContactBase):
-    pass
+    assignee_id: int | None = None
 
 
 class ContactOut(ContactBase):

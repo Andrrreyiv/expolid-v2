@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { getContact } from "@/api/contacts";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getContact, updateContact } from "@/api/contacts";
+import { listTeam } from "@/api/team";
 import { absoluteUrl } from "@/api/uploads";
 import { Button } from "@/components/ui/Button";
 import PageHeader from "@/components/PageHeader";
@@ -19,10 +20,20 @@ const statusColors: Record<string, string> = {
 export default function ContactDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["contact", id],
     queryFn: () => getContact(Number(id)),
     enabled: Boolean(id),
+  });
+  const team = useQuery({ queryKey: ["team"], queryFn: listTeam });
+  const assignMut = useMutation({
+    mutationFn: (assignee_id: number | null) =>
+      updateContact(Number(id), { assignee_id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contact", id] });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+    },
   });
 
   if (q.isLoading) {
@@ -80,6 +91,25 @@ export default function ContactDetailPage() {
           value={[c.pavilion, c.stand].filter(Boolean).join(" · ") || null}
         />
         <Field label="Тип" value={c.contact_type} />
+
+        <div className="bg-white border border-slate-200 rounded-lg p-3">
+          <label className="text-xs text-slate-500">Менеджер</label>
+          <select
+            className="mt-1 w-full text-sm bg-transparent"
+            value={c.assignee_id ?? ""}
+            disabled={assignMut.isPending}
+            onChange={(e) =>
+              assignMut.mutate(e.target.value === "" ? null : Number(e.target.value))
+            }
+          >
+            <option value="">— не назначен —</option>
+            {(team.data ?? []).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name} ({m.role})
+              </option>
+            ))}
+          </select>
+        </div>
 
         {c.card_belongs_to_other && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">

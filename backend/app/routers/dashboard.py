@@ -26,6 +26,7 @@ class DashboardStats(BaseModel):
     tasks_overdue: int
     followups_total: int
     followups_sent: int
+    avg_followup_hours: float | None
     top_users: list[dict]
 
 
@@ -104,6 +105,26 @@ async def stats(
         )
     ).scalar_one()
 
+    # Average hours from contact creation to first follow-up sent
+    pair_rows = (
+        await db.execute(
+            select(Contact.created_at, func.min(FollowUp.sent_at))
+            .join(FollowUp, FollowUp.contact_id == Contact.id)
+            .where(Contact.organization_id == org_id)
+            .where(FollowUp.sent_at.isnot(None))
+            .group_by(Contact.id)
+        )
+    ).all()
+    if pair_rows:
+        deltas = [
+            (sent - created).total_seconds() / 3600.0
+            for created, sent in pair_rows
+            if created is not None and sent is not None
+        ]
+        avg_followup_hours = round(sum(deltas) / len(deltas), 2) if deltas else None
+    else:
+        avg_followup_hours = None
+
     top_rows = (
         await db.execute(
             select(User.id, User.name, func.count(Contact.id).label("cnt"))
@@ -125,5 +146,6 @@ async def stats(
         tasks_overdue=tasks_overdue,
         followups_total=followups_total,
         followups_sent=followups_sent,
+        avg_followup_hours=avg_followup_hours,
         top_users=top_users,
     )

@@ -7,6 +7,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.deps import get_current_user
@@ -14,9 +15,11 @@ from app.models import Contact, Exhibition, User
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
 
-COLUMNS: list[tuple[str, str]] = [
+# (заголовок, источник). Источник — имя атрибута либо callable(contact)->value.
+COLUMNS: list[tuple[str, object]] = [
     ("ID", "id"),
     ("Создан", "created_at"),
+    ("Связь", lambda c: "визитка владельца" if not c.card_belongs_to_other else "визитка коллеги/другого"),
     ("Имя", "name"),
     ("Компания", "company"),
     ("Должность", "position"),
@@ -30,8 +33,11 @@ COLUMNS: list[tuple[str, str]] = [
     ("Стенд", "stand"),
     ("Тип", "contact_type"),
     ("Статус", "status"),
+    ("Менеджер", lambda c: c.assignee.name if c.assignee else ""),
+    ("Кто записал", lambda c: c.captured_by.name if c.captured_by else ""),
+    ("AI-скор 1–100", "ai_score"),
+    ("Причина скоринга", "ai_score_reason"),
     ("Заметка", "note"),
-    ("Визитка чужая", "card_belongs_to_other"),
     ("Имя на визитке", "card_owner_name"),
     ("Должность на визитке", "card_owner_position"),
     ("Email на визитке", "card_owner_email"),
@@ -45,7 +51,11 @@ async def export_contacts(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
-    stmt = select(Contact).where(Contact.organization_id == user.organization_id)
+    stmt = (
+        select(Contact)
+        .where(Contact.organization_id == user.organization_id)
+        .options(selectinload(Contact.assignee), selectinload(Contact.captured_by))
+    )
     if exhibition_id is not None:
         stmt = stmt.where(Contact.exhibition_id == exhibition_id)
     stmt = stmt.order_by(Contact.created_at.desc())
@@ -70,8 +80,11 @@ async def export_contacts(
         cell.fill = header_fill
 
     for row_idx, c in enumerate(contacts, start=2):
-        for col_idx, (_, field) in enumerate(COLUMNS, start=1):
-            value = getattr(c, field, None)
+        for col_idx, (_, source) in enumerate(COLUMNS, start=1):
+            if callable(source):
+                value = source(c)
+            else:
+                value = getattr(c, source, None)
             if isinstance(value, datetime):
                 value = value.strftime("%Y-%m-%d %H:%M")
             elif isinstance(value, bool):

@@ -9,6 +9,7 @@ export interface DashboardStats {
   tasks_overdue: number;
   followups_total: number;
   followups_sent: number;
+  avg_followup_hours: number | null;
   top_users: { id: number; name: string; count: number }[];
 }
 
