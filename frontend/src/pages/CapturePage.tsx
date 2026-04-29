@@ -6,9 +6,11 @@ import { Input } from "@/components/ui/Input";
 import PageHeader from "@/components/PageHeader";
 import PhotoCapture from "@/components/PhotoCapture";
 import VoiceRecorder from "@/components/VoiceRecorder";
-import { absoluteUrl, uploadBlob, uploadDataUrl } from "@/api/uploads";
+import { absoluteUrl, uploadBlobOrQueue, uploadDataUrlOrQueue } from "@/api/uploads";
 import { createContact, type Contact } from "@/api/contacts";
 import { scanQrFromDataUrl, type ParsedCard } from "@/lib/qr";
+import { queueContact } from "@/lib/offline-db";
+import { syncNow } from "@/lib/sync";
 
 type Step = 1 | 2 | 3;
 
@@ -71,13 +73,18 @@ const emptyForm: FormState = {
   card_owner_phone: "",
 };
 
+interface PendingMedia {
+  url?: string;
+  pendingUploadId?: number;
+  previewUrl?: string;
+}
+
 export default function CapturePage() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>(1);
-  const [cardImageUrl, setCardImageUrl] = useState<string | null>(null);
-  const [personImageUrl, setPersonImageUrl] = useState<string | null>(null);
-  const [voiceUrl, setVoiceUrl] = useState<string | null>(null);
-  const [voiceBlob, setVoiceBlob] = useState<Blob | null>(null);
+  const [card, setCard] = useState<PendingMedia>({});
+  const [person, setPerson] = useState<PendingMedia>({});
+  const [voice, setVoice] = useState<PendingMedia>({});
   const [qr, setQr] = useState<ParsedCard | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
@@ -89,8 +96,8 @@ export default function CapturePage() {
 
   async function handleCardPhoto(dataUrl: string) {
     try {
-      const upload = await uploadDataUrl(dataUrl, "card.jpg");
-      setCardImageUrl(upload.url);
+      const r = await uploadDataUrlOrQueue(dataUrl, "card.jpg");
+      setCard({ url: r.url, pendingUploadId: r.pendingUploadId, previewUrl: r.previewUrl });
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error(e);
@@ -120,8 +127,8 @@ export default function CapturePage() {
 
   async function handlePersonPhoto(dataUrl: string) {
     try {
-      const upload = await uploadDataUrl(dataUrl, "person.jpg");
-      setPersonImageUrl(upload.url);
+      const r = await uploadDataUrlOrQueue(dataUrl, "person.jpg");
+      setPerson({ url: r.url, pendingUploadId: r.pendingUploadId, previewUrl: r.previewUrl });
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error(e);
@@ -129,14 +136,13 @@ export default function CapturePage() {
   }
 
   async function handleVoice(blob: Blob) {
-    setVoiceBlob(blob);
     if (blob.size === 0) {
-      setVoiceUrl(null);
+      setVoice({});
       return;
     }
     try {
-      const upload = await uploadBlob(blob, "voice.webm");
-      setVoiceUrl(upload.url);
+      const r = await uploadBlobOrQueue(blob, "voice.webm");
+      setVoice({ url: r.url, pendingUploadId: r.pendingUploadId, previewUrl: r.previewUrl });
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error(e);
@@ -148,15 +154,32 @@ export default function CapturePage() {
     setError(null);
     setSubmitting(true);
     try {
-      const payload: Partial<Contact> = {
+      const basePayload: Partial<Contact> = {
         ...form,
         contact_type: form.contact_type || null,
-        card_image_url: cardImageUrl,
-        person_image_url: personImageUrl,
-        voice_url: voiceUrl,
+        card_image_url: card.url ?? null,
+        person_image_url: person.url ?? null,
+        voice_url: voice.url ?? null,
       };
-      const created = await createContact(payload);
-      navigate(`/contacts/${created.id}`);
+      const refs: { field: string; uploadId: number }[] = [];
+      if (card.pendingUploadId)
+        refs.push({ field: "card_image_url", uploadId: card.pendingUploadId });
+      if (person.pendingUploadId)
+        refs.push({ field: "person_image_url", uploadId: person.pendingUploadId });
+      if (voice.pendingUploadId)
+        refs.push({ field: "voice_url", uploadId: voice.pendingUploadId });
+
+      if (refs.length === 0 && navigator.onLine) {
+        const created = await createContact(basePayload);
+        navigate(`/contacts/${created.id}`);
+        return;
+      }
+
+      // queue contact for later sync
+      await queueContact(basePayload as unknown as Record<string, unknown>, refs);
+      // try a sync immediately in case we're back online
+      void syncNow();
+      navigate("/contacts", { state: { queued: true } });
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } } };
       setError(e?.response?.data?.detail ?? "Не удалось сохранить контакт");
@@ -209,7 +232,7 @@ export default function CapturePage() {
               variant="ghost"
               fullWidth
               onClick={() => {
-                setCardImageUrl(null);
+                setCard({});
                 setStep(2);
               }}
             >
@@ -232,11 +255,13 @@ export default function CapturePage() {
               </div>
             )}
 
-            {cardImageUrl && (
+            {(card.url || card.previewUrl) && (
               <div>
-                <p className="text-xs text-slate-500 mb-1">Фото визитки</p>
+                <p className="text-xs text-slate-500 mb-1">
+                  Фото визитки {card.pendingUploadId ? "(в очереди)" : ""}
+                </p>
                 <img
-                  src={absoluteUrl(cardImageUrl) || ""}
+                  src={card.previewUrl || absoluteUrl(card.url) || ""}
                   alt="card"
                   className="w-full rounded-lg max-h-48 object-contain bg-slate-100"
                 />
@@ -245,10 +270,10 @@ export default function CapturePage() {
 
             <div>
               <p className="text-sm font-semibold text-slate-900 mb-2">Фото человека (опционально)</p>
-              {personImageUrl ? (
+              {person.url || person.previewUrl ? (
                 <div className="space-y-2">
                   <img
-                    src={absoluteUrl(personImageUrl) || ""}
+                    src={person.previewUrl || absoluteUrl(person.url) || ""}
                     alt="person"
                     className="w-full rounded-lg max-h-48 object-contain bg-slate-100"
                   />
@@ -256,7 +281,7 @@ export default function CapturePage() {
                     variant="secondary"
                     size="sm"
                     fullWidth
-                    onClick={() => setPersonImageUrl(null)}
+                    onClick={() => setPerson({})}
                   >
                     Убрать
                   </Button>

@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { Home, Users, ListChecks, Settings } from "lucide-react";
+import SyncIndicator from "@/components/SyncIndicator";
 
 const tabs = [
   { to: "/", icon: Home, label: "Главная", end: true },
@@ -11,6 +12,9 @@ const tabs = [
 export default function Layout() {
   return (
     <div className="min-h-screen flex flex-col">
+      <div className="fixed top-2 right-2 z-40">
+        <SyncIndicator />
+      </div>
       <main className="flex-1 pb-20">
         <Outlet />
       </main>

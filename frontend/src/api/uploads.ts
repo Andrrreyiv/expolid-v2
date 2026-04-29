@@ -1,4 +1,5 @@
 import { api } from "./client";
+import { queueUpload } from "@/lib/offline-db";
 
 export interface UploadResult {
   url: string;
@@ -28,4 +29,47 @@ export async function uploadBlob(blob: Blob, filename: string): Promise<UploadRe
 export async function uploadDataUrl(dataUrl: string, filename: string): Promise<UploadResult> {
   const blob = await (await fetch(dataUrl)).blob();
   return uploadBlob(blob, filename);
+}
+
+/**
+ * Upload result that may either be the live server URL (online path) or a
+ * local pending upload record (offline path). Capture flow uses this so we can
+ * keep the wizard usable without a network.
+ */
+export interface UploadOrQueueResult {
+  /** server-side relative URL like /uploads/abc.jpg, present only when uploaded */
+  url?: string;
+  /** local Dexie upload id, present only when queued for later sync */
+  pendingUploadId?: number;
+  /** preview URL the UI can render immediately (object URL when offline) */
+  previewUrl: string;
+}
+
+export async function uploadBlobOrQueue(
+  blob: Blob,
+  filename: string
+): Promise<UploadOrQueueResult> {
+  if (navigator.onLine) {
+    try {
+      const r = await uploadBlob(blob, filename);
+      return { url: r.url, previewUrl: absoluteUrl(r.url) || URL.createObjectURL(blob) };
+    } catch (e) {
+      // fall through to queue
+      // eslint-disable-next-line no-console
+      console.warn("upload failed, queueing", e);
+    }
+  }
+  const id = await queueUpload(blob, filename, blob.type || "application/octet-stream");
+  return {
+    pendingUploadId: id as number,
+    previewUrl: URL.createObjectURL(blob),
+  };
+}
+
+export async function uploadDataUrlOrQueue(
+  dataUrl: string,
+  filename: string
+): Promise<UploadOrQueueResult> {
+  const blob = await (await fetch(dataUrl)).blob();
+  return uploadBlobOrQueue(blob, filename);
 }
