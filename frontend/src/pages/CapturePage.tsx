@@ -204,12 +204,26 @@ export default function CapturePage() {
     const parsed: VoiceFields = parseVoiceTranscript(text);
     const filled: string[] = [];
     const updates: Partial<FormState> = {};
+    // Enum-like fields that come with a sensible-but-arbitrary default value
+    // (so "not set by user" looks identical to the default). For these we let
+    // the voice parser overwrite the default — otherwise "горячий лид" is
+    // ignored because the card already has status="warm" from emptyForm.
+    const FIELD_DEFAULTS: Partial<Record<keyof FormState, string>> = {
+      status: "warm",
+      contact_type: "",
+    };
     (Object.keys(parsed) as Array<keyof VoiceFields>).forEach((k) => {
       const v = parsed[k];
       if (v === undefined || v === null || v === "") return;
       const formKey = k as keyof FormState;
       const current = form[formKey];
-      if (current === "" || current === undefined || current === null) {
+      const defaultVal = FIELD_DEFAULTS[formKey];
+      const isEmpty =
+        current === "" ||
+        current === undefined ||
+        current === null ||
+        (defaultVal !== undefined && current === defaultVal);
+      if (isEmpty) {
         (updates as Record<string, unknown>)[formKey] = v;
         filled.push(VOICE_FIELD_LABELS[k] ?? String(k));
       }
