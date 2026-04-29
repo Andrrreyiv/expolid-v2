@@ -11,8 +11,14 @@ class Settings(BaseSettings):
     app_name: str = "ExpoLid Backend"
     debug: bool = False
 
-    # Database — sqlite+aiosqlite for dev, postgres+asyncpg for prod
-    database_url: str = "sqlite+aiosqlite:///./expolid.db"
+    # Database — sqlite+aiosqlite for dev, postgres+asyncpg for prod.
+    # On Fly.io a 1GB volume is mounted at /data; persist sqlite there
+    # automatically when no DATABASE_URL is provided.
+    database_url: str = (
+        "sqlite+aiosqlite:////data/app.db"
+        if __import__("os").path.isdir("/data")
+        else "sqlite+aiosqlite:///./expolid.db"
+    )
 
     # JWT
     jwt_secret: str = Field(default="change-me-in-prod-very-long-random-string-2026")
