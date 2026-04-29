@@ -196,31 +196,33 @@ export default function CapturePage() {
   async function handleTranscript(text: string) {
     setTranscript(text);
 
-    // 1) Raw transcript → goes into the Note field, so it's visible on the contact card.
+    // Parse the transcript heuristically and decide which still-empty fields
+    // to fill. Do this synchronously against the current form closure — we can't
+    // rely on mutating a local inside a setForm updater, since React 18 batches
+    // updater execution (it runs during reconciliation, not when scheduled), which
+    // means any side-effects inside it are invisible to code right after setForm.
+    const parsed: VoiceFields = parseVoiceTranscript(text);
+    const filled: string[] = [];
+    const updates: Partial<FormState> = {};
+    (Object.keys(parsed) as Array<keyof VoiceFields>).forEach((k) => {
+      const v = parsed[k];
+      if (v === undefined || v === null || v === "") return;
+      const formKey = k as keyof FormState;
+      const current = form[formKey];
+      if (current === "" || current === undefined || current === null) {
+        (updates as Record<string, unknown>)[formKey] = v;
+        filled.push(VOICE_FIELD_LABELS[k] ?? String(k));
+      }
+    });
+
+    // One combined setForm: append raw transcript to Note and apply any
+    // voice-derived field updates in the same pass, so OCR/QR can't race.
     setForm((f) => ({
       ...f,
+      ...updates,
       note: f.note ? f.note + "\n\n" + text : text,
     }));
 
-    // 2) Parse the transcript heuristically and fill any still-empty fields
-    //    (never overwrite what OCR / QR / user already provided).
-    const parsed: VoiceFields = parseVoiceTranscript(text);
-    const filled: string[] = [];
-    setForm((f) => {
-      const next = { ...f };
-      (Object.keys(parsed) as Array<keyof VoiceFields>).forEach((k) => {
-        const v = parsed[k];
-        if (v === undefined || v === null || v === "") return;
-        // Target form key (everything 1-to-1 except status/contact_type, which exist on form).
-        const formKey = k as keyof FormState;
-        const current = next[formKey];
-        if (current === "" || current === undefined || current === null) {
-          (next as Record<string, unknown>)[formKey] = v;
-          filled.push(VOICE_FIELD_LABELS[k] ?? String(k));
-        }
-      });
-      return next;
-    });
     if (filled.length > 0) {
       setVoiceInfo(`Голос заполнил: ${filled.join(", ")}`);
     } else if (text.trim()) {
