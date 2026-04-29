@@ -8,7 +8,18 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import Base, engine
-from app.routers import auth, contacts, exhibitions, followups, tasks, templates, uploads
+from app.routers import (
+    auth,
+    contacts,
+    dashboard,
+    exhibitions,
+    exports,
+    followups,
+    tasks,
+    team,
+    templates,
+    uploads,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,6 +57,9 @@ app.include_router(tasks.router)
 app.include_router(templates.router)
 app.include_router(followups.router)
 app.include_router(uploads.router)
+app.include_router(team.router)
+app.include_router(dashboard.router)
+app.include_router(exports.router)
 
 # Serve uploaded media (images, voice memos)
 _uploads_dir = Path("/data/uploads") if os.path.isdir("/data") else Path("./uploads")
