@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/Button";
 interface VoiceRecorderProps {
   onRecorded?: (blob: Blob, durationSec: number) => void;
   onTranscript?: (transcript: string) => void;
+  onSttStatus?: (status: { available: boolean; error?: string }) => void;
   initialBlob?: Blob | null;
 }
 
+type SRErrorEvent = { error?: string };
 type SR = {
   start: () => void;
   stop: () => void;
@@ -16,7 +18,7 @@ type SR = {
   interimResults: boolean;
   lang: string;
   onresult: ((e: { results: ArrayLike<{ 0: { transcript: string }; isFinal?: boolean; length: number }>; resultIndex: number }) => void) | null;
-  onerror: ((e: { error?: string }) => void) | null;
+  onerror: ((e: SRErrorEvent) => void) | null;
   onend: (() => void) | null;
 };
 
@@ -25,7 +27,7 @@ function getSpeechRecognitionCtor(): { new (): SR } | null {
   return w.SpeechRecognition || w.webkitSpeechRecognition || null;
 }
 
-export default function VoiceRecorder({ onRecorded, onTranscript, initialBlob }: VoiceRecorderProps) {
+export default function VoiceRecorder({ onRecorded, onTranscript, onSttStatus, initialBlob }: VoiceRecorderProps) {
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [blob, setBlob] = useState<Blob | null>(initialBlob ?? null);
@@ -37,6 +39,7 @@ export default function VoiceRecorder({ onRecorded, onTranscript, initialBlob }:
   const streamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<SR | null>(null);
   const transcriptRef = useRef("");
+  const sttErrorRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -91,7 +94,7 @@ export default function VoiceRecorder({ onRecorded, onTranscript, initialBlob }:
           const sr = new Ctor();
           sr.continuous = true;
           sr.interimResults = true;
-          sr.lang = navigator.language?.startsWith("ru") ? "ru-RU" : navigator.language || "en-US";
+          sr.lang = "ru-RU";
           sr.onresult = (e) => {
             let finalText = transcriptRef.current;
             let interim = "";
@@ -107,18 +110,24 @@ export default function VoiceRecorder({ onRecorded, onTranscript, initialBlob }:
             transcriptRef.current = finalText;
             setLiveTranscript((finalText + " " + interim).trim());
           };
-          sr.onerror = () => { /* swallow — STT is best-effort */ };
+          sr.onerror = (ev) => {
+            sttErrorRef.current = ev?.error ?? "unknown";
+            onSttStatus?.({ available: true, error: ev?.error });
+          };
           sr.onend = () => {
-            // Auto-restart while we're still recording (Chrome ends every ~60s).
-            if (recording && recognitionRef.current === sr) {
+            // Auto-restart while we're still recording.
+            if (recognitionRef.current === sr && recorderRef.current?.state === "recording") {
               try { sr.start(); } catch { /* ignore */ }
             }
           };
           sr.start();
           recognitionRef.current = sr;
+          onSttStatus?.({ available: true });
         } catch {
-          // ignore
+          onSttStatus?.({ available: false, error: "start-failed" });
         }
+      } else {
+        onSttStatus?.({ available: false, error: "no-api" });
       }
     } catch (e) {
       setError("Нет доступа к микрофону");
@@ -137,8 +146,11 @@ export default function VoiceRecorder({ onRecorded, onTranscript, initialBlob }:
       recognitionRef.current = null;
     }
     setRecording(false);
-    if (transcriptRef.current.trim()) {
-      onTranscript?.(transcriptRef.current.trim());
+    // Always notify parent of the final transcript — even an empty string tells
+    // the UI "STT ran but produced nothing" so it can show a clear error.
+    onTranscript?.(transcriptRef.current.trim());
+    if (!transcriptRef.current.trim() && sttErrorRef.current) {
+      onSttStatus?.({ available: true, error: sttErrorRef.current });
     }
   }
 

@@ -91,6 +91,9 @@ export default function CapturePage() {
   const [qr, setQr] = useState<ParsedCard | null>(null);
   const [ocrInfo, setOcrInfo] = useState<string | null>(null);
   const [voiceInfo, setVoiceInfo] = useState<string | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualText, setManualText] = useState("");
   const [transcript, setTranscript] = useState("");
   const [autoSummary, setAutoSummary] = useState<{ summary: string; phrases: string[] } | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -193,8 +196,43 @@ export default function CapturePage() {
     }
   }
 
+  function handleSttStatus(s: { available: boolean; error?: string }) {
+    if (!s.available) {
+      setVoiceError(
+        s.error === "no-api"
+          ? "Этот браузер не поддерживает распознавание речи. Используйте Chrome/Edge/Safari или введите текст вручную."
+          : "Не удалось запустить распознавание. Введите текст вручную.",
+      );
+    } else if (s.error) {
+      const msg =
+        s.error === "not-allowed" || s.error === "service-not-allowed"
+          ? "Нет доступа к микрофону или Online Speech выключен в системе. Введите текст вручную."
+          : s.error === "no-speech"
+          ? "Речь не распознана. Говорите громче ближе к микрофону или введите текст вручную."
+          : s.error === "network"
+          ? "Нет связи с сервисом распознавания. Введите текст вручную."
+          : null;
+      if (msg) setVoiceError(msg);
+    } else {
+      setVoiceError(null);
+    }
+  }
+
   async function handleTranscript(text: string) {
     setTranscript(text);
+    if (!text.trim()) {
+      // STT ran but returned nothing. Keep whatever voiceError is set;
+      // don't clear voiceInfo — nothing to say positively.
+      if (!voiceError) {
+        setVoiceError(
+          "Не удалось получить транскрипцию. Проверьте микрофон и системную настройку «Online speech recognition», или введите текст вручную.",
+        );
+      }
+      setManualOpen(true);
+      return;
+    }
+    // Clear any previous error once we have text.
+    setVoiceError(null);
 
     // Parse the transcript heuristically and decide which still-empty fields
     // to fill. Do this synchronously against the current form closure — we can't
@@ -243,7 +281,7 @@ export default function CapturePage() {
       setVoiceInfo("Текст добавлен в заметку. Поля заполните вручную.");
     }
 
-    // 3) Summarize asynchronously (best-effort, extractive).
+    // Summarize asynchronously (best-effort, extractive).
     if (text.trim().length >= 20) {
       try {
         const s = await summarize(text);
@@ -252,6 +290,15 @@ export default function CapturePage() {
         // ignore — best-effort
       }
     }
+  }
+
+  async function applyManualText() {
+    const t = manualText.trim();
+    if (!t) return;
+    setManualOpen(false);
+    const toParse = t;
+    setManualText("");
+    await handleTranscript(toParse);
   }
 
   async function onSubmit(e: FormEvent) {
@@ -411,7 +458,53 @@ export default function CapturePage() {
               )}
             </div>
 
-            <VoiceRecorder onRecorded={handleVoice} onTranscript={handleTranscript} />
+            <VoiceRecorder
+              onRecorded={handleVoice}
+              onTranscript={handleTranscript}
+              onSttStatus={handleSttStatus}
+            />
+            {voiceError && (
+              <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs text-rose-900">
+                <p>⚠️ {voiceError}</p>
+                <button
+                  type="button"
+                  className="mt-2 underline text-rose-900 hover:text-rose-700"
+                  onClick={() => setManualOpen(true)}
+                >
+                  Ввести текст вручную
+                </button>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                className="text-xs underline text-slate-600 hover:text-slate-800"
+                onClick={() => setManualOpen((v) => !v)}
+              >
+                {manualOpen ? "Свернуть ввод вручную" : "Ввести текст вручную (если микрофона нет)"}
+              </button>
+            </div>
+            {manualOpen && (
+              <div className="bg-white border border-slate-200 rounded-lg p-3 space-y-2">
+                <label className="text-xs text-slate-600">
+                  Вставьте или напишите текст — мы разберём его по полям карточки
+                </label>
+                <textarea
+                  value={manualText}
+                  onChange={(e) => setManualText(e.target.value)}
+                  placeholder="Пример: Меня зовут Иван Петров, я директор ООО Ромашка, телефон +7 999 123-45-67, email ivan@romashka.ru, горячий лид"
+                  className="w-full min-h-[96px] text-sm border border-slate-300 rounded p-2"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="secondary" onClick={() => { setManualOpen(false); setManualText(""); }}>
+                    Отмена
+                  </Button>
+                  <Button onClick={applyManualText} disabled={!manualText.trim()}>
+                    Разобрать и заполнить
+                  </Button>
+                </div>
+              </div>
+            )}
             {autoSummary?.summary && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
                 <p className="font-medium mb-1">Авто-резюме</p>
