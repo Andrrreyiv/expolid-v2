@@ -4,6 +4,8 @@ import { getContact } from "@/api/contacts";
 import { absoluteUrl } from "@/api/uploads";
 import { Button } from "@/components/ui/Button";
 import PageHeader from "@/components/PageHeader";
+import TasksSection from "@/components/TasksSection";
+import FollowUpsSection from "@/components/FollowUpsSection";
 
 const statusColors: Record<string, string> = {
   hot: "bg-rose-100 text-rose-700",
@@ -101,6 +103,9 @@ export default function ContactDetailPage() {
         )}
 
         <Field label="Заметка" value={c.note} />
+
+        <TasksSection contactId={c.id} />
+        <FollowUpsSection contact={c} />
 
         <Button variant="secondary" fullWidth onClick={() => navigate(-1)}>
           Назад

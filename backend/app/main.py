@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import Base, engine
-from app.routers import auth, contacts, exhibitions, uploads
+from app.routers import auth, contacts, exhibitions, followups, tasks, templates, uploads
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,6 +42,9 @@ async def health() -> dict[str, str]:
 app.include_router(auth.router)
 app.include_router(exhibitions.router)
 app.include_router(contacts.router)
+app.include_router(tasks.router)
+app.include_router(templates.router)
+app.include_router(followups.router)
 app.include_router(uploads.router)
 
 # Serve uploaded media (images, voice memos)
