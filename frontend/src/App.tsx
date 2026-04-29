@@ -10,6 +10,7 @@ import TasksPage from "@/pages/TasksPage";
 import SettingsPage from "@/pages/SettingsPage";
 import CapturePage from "@/pages/CapturePage";
 import { useAuth } from "@/store/auth";
+import { useRealtime } from "@/lib/realtime";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, initializing } = useAuth();
@@ -38,6 +39,7 @@ export default function App() {
   useEffect(() => {
     bootstrap();
   }, [bootstrap]);
+  useRealtime();
 
   return (
     <Routes>

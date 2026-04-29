@@ -10,6 +10,7 @@ import {
 } from "@/api/exhibitions";
 import { useAuth } from "@/store/auth";
 import PageHeader from "@/components/PageHeader";
+import PushToggle from "@/components/PushToggle";
 import TeamSection from "@/components/TeamSection";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -156,6 +157,11 @@ export default function SettingsPage() {
         </section>
 
         <TeamSection />
+
+        <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+          <p className="font-semibold text-slate-900">Уведомления</p>
+          <PushToggle />
+        </section>
 
         <section className="bg-white border border-slate-200 rounded-xl p-4">
           <p className="font-semibold text-slate-900">Аккаунт</p>

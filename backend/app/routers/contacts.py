@@ -4,7 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user
+from app.events import publish
 from app.models import Contact, User
+from app.push import notify_team
 from app.schemas import ContactIn, ContactOut, ContactUpdate, Message
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"])
@@ -42,6 +44,19 @@ async def create_contact(
     db.add(contact)
     await db.commit()
     await db.refresh(contact)
+    publish(
+        user.organization_id,
+        "contact.created",
+        {"id": contact.id, "name": contact.name, "by": user.name},
+    )
+    await notify_team(
+        db,
+        organization_id=user.organization_id,
+        exclude_user_id=user.id,
+        title="Новый контакт",
+        body=f"{user.name} записал(а): {contact.name or contact.company or 'контакт'}",
+        url=f"/contacts/{contact.id}",
+    )
     return contact
 
 
@@ -71,6 +86,11 @@ async def update_contact(
         setattr(c, field, value)
     await db.commit()
     await db.refresh(c)
+    publish(
+        user.organization_id,
+        "contact.updated",
+        {"id": c.id, "name": c.name, "status": c.status},
+    )
     return c
 
 
@@ -85,4 +105,5 @@ async def delete_contact(
         raise HTTPException(status_code=404, detail="Contact not found")
     await db.delete(c)
     await db.commit()
+    publish(user.organization_id, "contact.deleted", {"id": contact_id})
     return Message(detail="ok")

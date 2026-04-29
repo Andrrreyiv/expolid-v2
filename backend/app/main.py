@@ -15,6 +15,8 @@ from app.routers import (
     exhibitions,
     exports,
     followups,
+    push,
+    stream,
     tasks,
     team,
     templates,
@@ -60,6 +62,8 @@ app.include_router(uploads.router)
 app.include_router(team.router)
 app.include_router(dashboard.router)
 app.include_router(exports.router)
+app.include_router(push.router)
+app.include_router(stream.router)
 
 # Serve uploaded media (images, voice memos)
 _uploads_dir = Path("/data/uploads") if os.path.isdir("/data") else Path("./uploads")

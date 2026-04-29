@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user
+from app.events import publish
 from app.models import Contact, Task, User
+from app.push import send_to_user
 from app.schemas import Message, TaskIn, TaskOut, TaskUpdate
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -52,6 +54,19 @@ async def create_task(
     db.add(task)
     await db.commit()
     await db.refresh(task)
+    publish(
+        user.organization_id,
+        "task.created",
+        {"id": task.id, "title": task.title, "contact_id": task.contact_id},
+    )
+    if task.assignee_id and task.assignee_id != user.id:
+        await send_to_user(
+            db,
+            user_id=task.assignee_id,
+            title="Новая задача",
+            body=task.title,
+            url=f"/contacts/{task.contact_id}",
+        )
     return task
 
 
@@ -74,6 +89,11 @@ async def update_task(
         setattr(task, field, value)
     await db.commit()
     await db.refresh(task)
+    publish(
+        user.organization_id,
+        "task.updated",
+        {"id": task.id, "status": task.status},
+    )
     return task
 
 
@@ -88,4 +108,5 @@ async def delete_task(
         raise HTTPException(status_code=404, detail="Task not found")
     await db.delete(task)
     await db.commit()
+    publish(user.organization_id, "task.deleted", {"id": task_id})
     return Message(detail="ok")

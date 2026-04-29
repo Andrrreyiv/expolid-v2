@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import AsyncSessionLocal, get_db
 from app.models import User
 from app.security import decode_access_token
 
@@ -40,3 +40,21 @@ def require_role(*allowed: str):
         return user
 
     return _check
+
+
+async def resolve_user_from_token(token: str) -> User | None:
+    """Resolve a User from a raw JWT, used when the request can't go through
+    Depends() (e.g. SSE endpoint reading token from query string).
+    """
+    payload = decode_access_token(token)
+    if not payload or "sub" not in payload:
+        return None
+    try:
+        user_id = int(payload["sub"])
+    except (TypeError, ValueError):
+        return None
+    async with AsyncSessionLocal() as session:
+        user = await session.get(User, user_id)
+    if user is None or not user.is_active:
+        return None
+    return user

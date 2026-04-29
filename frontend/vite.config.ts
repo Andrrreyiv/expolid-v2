@@ -7,8 +7,15 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
       registerType: "autoUpdate",
+      injectRegister: "auto",
       includeAssets: ["favicon.svg"],
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,svg,png,ico}"],
+      },
       manifest: {
         name: "ЭкспоЛид",
         short_name: "ЭкспоЛид",
@@ -30,32 +37,6 @@ export default defineConfig({
             sizes: "512x512",
             type: "image/png",
             purpose: "any maskable",
-          },
-        ],
-      },
-      workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,ico}"],
-        navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/api/, /^\/uploads/],
-        runtimeCaching: [
-          // GETs to API: NetworkFirst with short cache so offline shows last data
-          {
-            urlPattern: ({ url, request }) =>
-              request.method === "GET" && /\/api\/(contacts|exhibitions|tasks|templates|followups|dashboard)/.test(url.pathname),
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "api-get",
-              networkTimeoutSeconds: 4,
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 7 },
-            },
-          },
-          {
-            urlPattern: ({ url }) => /\/uploads\//.test(url.pathname),
-            handler: "CacheFirst",
-            options: {
-              cacheName: "uploads",
-              expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            },
           },
         ],
       },

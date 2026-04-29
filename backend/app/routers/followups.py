@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import get_current_user
+from app.events import publish
 from app.models import Contact, FollowUp, User
 from app.schemas import Message
 
@@ -120,6 +121,11 @@ async def create_followup(
     db.add(fu)
     await db.commit()
     await db.refresh(fu)
+    publish(
+        user.organization_id,
+        "followup.created",
+        {"id": fu.id, "contact_id": fu.contact_id, "kind": fu.kind},
+    )
     return fu
 
 
@@ -135,6 +141,11 @@ async def mark_sent(
     fu.sent_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(fu)
+    publish(
+        user.organization_id,
+        "followup.sent",
+        {"id": fu.id, "contact_id": fu.contact_id, "kind": fu.kind},
+    )
     return fu
 
 
@@ -149,6 +160,7 @@ async def delete_followup(
         raise HTTPException(status_code=404, detail="FollowUp not found")
     await db.delete(fu)
     await db.commit()
+    publish(user.organization_id, "followup.deleted", {"id": followup_id})
     return Message(detail="ok")
 
 
