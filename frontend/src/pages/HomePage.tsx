@@ -158,7 +158,7 @@ export default function HomePage() {
           </div>
         )}
 
-        <p className="text-center text-xs text-slate-400 pt-4">Made by Devin · v0.3.0</p>
+        <p className="text-center text-xs text-slate-400 pt-4">Made by Raia.pro</p>
       </div>
     </div>
   );
