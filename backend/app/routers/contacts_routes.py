@@ -141,7 +141,7 @@ def _create_task_from_next_step(db: Session, contact: Contact):
 
 # ----- Media upload + AI processing -----
 @router.post("/capture", response_model=schemas.ContactOut)
-async def capture_contact(
+def capture_contact(
     exhibition_id: Optional[str] = Form(None),
     notes_text: Optional[str] = Form(None),
     talked_to_card_owner: bool = Form(True),
@@ -315,7 +315,7 @@ async def capture_contact(
 
 
 @router.post("/{contact_id}/media", response_model=schemas.ContactMediaOut)
-async def upload_media(
+def upload_media(
     contact_id: str,
     kind: str = Form("extra"),
     file: UploadFile = File(...),

@@ -32,11 +32,16 @@ def invite_member(
     existing = db.query(User).filter(User.email == payload.email.lower()).first()
     if existing:
         raise HTTPException(status_code=409, detail="Email уже занят")
+    # Только owner может назначать роль owner; иначе ограничиваем manager/staff,
+    # чтобы manager не мог эскалировать привилегии (создать owner и войти под ним).
+    requested = payload.role if payload.role in ("owner", "manager", "staff") else "staff"
+    if requested == "owner" and user.role != "owner":
+        raise HTTPException(status_code=403, detail="Только владелец может назначать роль owner")
     new_user = User(
         email=payload.email.lower(),
         password_hash=hash_password(payload.password),
         name=payload.name,
-        role=payload.role if payload.role in ("owner", "manager", "staff") else "staff",
+        role=requested,
         company_id=user.company_id,
     )
     db.add(new_user)
