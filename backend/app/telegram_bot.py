@@ -6,6 +6,7 @@ does not import them when no bot token is configured (saves ~80MB RAM).
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import os
 import secrets
@@ -194,38 +195,48 @@ async def _create_contact(
     notes_text: Optional[str] = None,
 ) -> Contact:
     """Создать контакт из Telegram-сообщения. AI используется по возможности."""
+    loop = asyncio.get_event_loop()
+
     # OCR
-    extracted = {}
+    extracted: dict = {}
     if card_path:
         try:
-            extracted = await asyncio.get_event_loop().run_in_executor(
-                None, ai.extract_business_card, card_path
+            extracted = await loop.run_in_executor(
+                None, ai.ocr_business_card, card_path
             ) or {}
         except Exception:  # noqa: BLE001
+            logger.exception("telegram OCR failed")
             extracted = {}
+
     transcript = ""
     if voice_path:
         try:
-            transcript = await asyncio.get_event_loop().run_in_executor(
+            transcript = await loop.run_in_executor(
                 None, ai.transcribe_audio, voice_path
             ) or ""
         except Exception:  # noqa: BLE001
+            logger.exception("telegram STT failed")
             transcript = ""
 
     summary = ""
     agreements = ""
     next_step = ""
-    notes_full = (notes_text or "") + ("\n" + transcript if transcript else "")
-    if notes_full.strip():
+    if (transcript or "").strip() or (notes_text or "").strip():
         try:
-            res = await asyncio.get_event_loop().run_in_executor(
-                None, ai.analyze_meeting, notes_full
+            res = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    ai.summarize_conversation,
+                    voice_transcript=transcript or None,
+                    text_notes=notes_text or None,
+                    contact_company=extracted.get("contact_company"),
+                ),
             ) or {}
-            summary = res.get("summary", "")
-            agreements = res.get("agreements", "")
-            next_step = res.get("next_step", "")
+            summary = res.get("summary", "") or ""
+            agreements = res.get("agreements", "") or ""
+            next_step = res.get("next_step", "") or ""
         except Exception:  # noqa: BLE001
-            pass
+            logger.exception("telegram summary failed")
 
     # Active exhibition
     ex = (
