@@ -108,6 +108,9 @@ export default function ContactDetail() {
         <Send size={16} /> Подготовить follow-up
       </button>
       <PushToAmoButton contactId={contact.id} />
+      <PushToBitrixButton contactId={contact.id} />
+      <PushToHubspotButton contactId={contact.id} />
+      <EnrichmentBlock contact={contact} onUpdated={reload} />
 
       {draftOpen && (
         <FollowupDrafter
@@ -173,9 +176,149 @@ export default function ContactDetail() {
         </Section>
       )}
 
+      <ConsentBlock contact={contact} />
+
       <button onClick={remove} className="btn-danger w-full">
         <Trash2 size={16} /> Удалить контакт
       </button>
+      <EraseButton contactId={contact.id} onErased={reload} />
+    </div>
+  );
+}
+
+function ConsentBlock({ contact }: { contact: Contact }) {
+  if (!contact.consent_given_at && !contact.erased_at) return null;
+  return (
+    <div className="card p-3 text-xs">
+      {contact.erased_at && (
+        <div className="text-rose-600 font-semibold">
+          🗑 Данные стёрты по запросу субъекта ПДн ({formatDate(contact.erased_at)})
+        </div>
+      )}
+      {contact.consent_given_at && !contact.erased_at && (
+        <div className="text-emerald-700">
+          ✅ Согласие на обработку ПДн получено {formatDate(contact.consent_given_at)}
+          {contact.consent_text_version && ` (v${contact.consent_text_version})`}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EraseButton({ contactId, onErased }: { contactId: string; onErased: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const erase = async () => {
+    if (!confirm("Стереть все ПДн (имя, email, телефон, медиа)? Это необратимо. Запись о согласии останется, но контент удаляется навсегда (152-ФЗ / GDPR).")) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/contacts/${contactId}/erase`);
+      onErased();
+      setMsg("ПДн стёрты");
+    } catch (e: unknown) {
+      setMsg((e as { response?: { data?: { detail?: string } } }).response?.data?.detail || "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div>
+      <button onClick={erase} disabled={busy} className="btn-secondary w-full text-rose-600">
+        🗑 Стереть ПДн (152-ФЗ / GDPR)
+      </button>
+      {msg && <div className="text-xs text-slate-600 mt-1">{msg}</div>}
+    </div>
+  );
+}
+
+function EnrichmentBlock({ contact, onUpdated }: { contact: Contact; onUpdated: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const enrich = async () => {
+    setBusy(true); setErr(null);
+    try {
+      await api.post(`/api/contacts/${contact.id}/enrich`);
+      onUpdated();
+    } catch (e: unknown) {
+      setErr((e as { response?: { data?: { detail?: string } } }).response?.data?.detail || "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const data = (contact.enrichment_data || {}) as Record<string, unknown>;
+  const hasData = Object.keys(data).length > 0;
+  return (
+    <div className="card p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Контекст компании (DaData + meta)</div>
+        <button onClick={enrich} disabled={busy} className="btn-secondary text-xs">
+          {busy ? "..." : hasData ? "Обновить" : "Обогатить"}
+        </button>
+      </div>
+      {err && <div className="text-xs text-rose-600">{err}</div>}
+      {hasData ? (
+        <pre className="text-xs whitespace-pre-wrap bg-slate-50 rounded p-2 overflow-auto max-h-72">
+          {JSON.stringify(data, null, 2)}
+        </pre>
+      ) : (
+        <p className="text-xs text-slate-500">
+          Кликните «Обогатить» — система найдёт ИНН/ОГРН/руководство компании в DaData (РФ) и метаданные сайта.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PushToBitrixButton({ contactId }: { contactId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    api.get<{ connected: boolean }>("/api/integrations/bitrix24/status")
+      .then((r) => setEnabled(r.data.connected))
+      .catch(() => setEnabled(false));
+  }, []);
+  if (!enabled) return null;
+  const push = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await api.post<{ contact_id: number; deal_id: number }>(`/api/integrations/bitrix24/push/${contactId}`);
+      setMsg(`Создано в Bitrix24: контакт #${r.data.contact_id}`);
+    } catch (e: unknown) {
+      setMsg((e as { response?: { data?: { detail?: string } } }).response?.data?.detail || "Ошибка");
+    } finally { setBusy(false); }
+  };
+  return (
+    <div>
+      <button onClick={push} disabled={busy} className="btn-secondary w-full">↗ Отправить в Bitrix24</button>
+      {msg && <div className="text-xs text-slate-600 mt-1">{msg}</div>}
+    </div>
+  );
+}
+
+function PushToHubspotButton({ contactId }: { contactId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    api.get<{ connected: boolean }>("/api/integrations/hubspot/status")
+      .then((r) => setEnabled(r.data.connected))
+      .catch(() => setEnabled(false));
+  }, []);
+  if (!enabled) return null;
+  const push = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await api.post<{ contact_id: string; deal_id: string }>(`/api/integrations/hubspot/push/${contactId}`);
+      setMsg(`Создано в HubSpot: contact ${r.data.contact_id}`);
+    } catch (e: unknown) {
+      setMsg((e as { response?: { data?: { detail?: string } } }).response?.data?.detail || "Ошибка");
+    } finally { setBusy(false); }
+  };
+  return (
+    <div>
+      <button onClick={push} disabled={busy} className="btn-secondary w-full">↗ Отправить в HubSpot</button>
+      {msg && <div className="text-xs text-slate-600 mt-1">{msg}</div>}
     </div>
   );
 }

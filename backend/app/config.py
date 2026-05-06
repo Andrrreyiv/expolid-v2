@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model_audio: str = "whisper-large-v3-turbo"
 
+    # DaData (РФ-обогащение, бесплатный тир 10k/день)
+    dadata_api_key: str = ""
+
     # Web Push (VAPID)
     vapid_public_key: str = "BDdNjSHgm43kv_aCs7uZsLe7sCHuP5mWOwakaK2jFGBldOfXTJSU78eUCj6DOY6XIlly4koNyop-eSrkhz6dOL0"
     vapid_private_pem_b64: str = "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JR0hBZ0VBTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEJHMHdhd0lCQVFRZ2FQYVpYZStwamtLTmdGWFkKcjZsL056NVdpL21zK1J5RmRBL1ltZy9HWkxtaFJBTkNBQVEzVFkwaDRKdU41TC8yZ3JPN21iQzN1N0FoN2orWgpsanNHcEdpdG94UmdaWFRuMTB5VWxPL0hsQW8rZ3ptT2x5SlpjdUpLRGNxS2Zua3E1SWMrblRpOQotLS0tLUVORCBQUklWQVRFIEtFWS0tLS0tCg=="

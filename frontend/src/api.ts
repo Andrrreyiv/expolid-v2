@@ -90,9 +90,78 @@ export interface Contact {
   linked_contact_id?: string | null;
   pavilion?: string | null;
   stand?: string | null;
+  qualification_template_id?: string | null;
+  qualification_answers?: Record<string, unknown> | null;
+  consent_given_at?: string | null;
+  consent_text_version?: string | null;
+  consent_source?: string | null;
+  erased_at?: string | null;
+  capture_source?: string | null;
+  badge_id?: string | null;
+  enrichment_data?: Record<string, unknown> | null;
+  enriched_at?: string | null;
   created_at: string;
   updated_at: string;
   media: ContactMedia[];
+}
+
+export interface QualificationOption {
+  value: string;
+  label: string;
+  score?: number;
+}
+
+export interface QualificationQuestion {
+  id: string;
+  type: "single" | "multi" | "rating" | "text" | "number" | "bool";
+  text: string;
+  required?: boolean;
+  options?: QualificationOption[];
+  branch?: { if_value?: string; goto?: string };
+  score_weight?: number;
+}
+
+export interface QualificationTemplate {
+  id: string;
+  name: string;
+  questions: QualificationQuestion[];
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface RoutingRule {
+  id: string;
+  name: string;
+  priority: number;
+  conditions: Record<string, unknown>;
+  action_type: "assign" | "round_robin" | "tag";
+  action_data: Record<string, unknown>;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface DuplicateCandidate {
+  id: string;
+  name: string;
+  contact_company?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  match_reasons: string[];
+  score: number;
+  created_at: string;
+}
+
+export interface BadgeParseResponse {
+  name?: string | null;
+  contact_company?: string | null;
+  role_title?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  telegram?: string | null;
+  badge_id?: string | null;
+  capture_source: string;
+  raw_payload: string;
 }
 
 export interface Task {

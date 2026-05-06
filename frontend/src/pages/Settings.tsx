@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { LogOut, Plus, Trash2, Star, Users, FileText, Bell, BellOff, Send, Pencil, Check, X } from "lucide-react";
-import { api, type Company, type Exhibition, type ProposalTemplate, type TeamMember, type User } from "../api";
+import { LogOut, Plus, Trash2, Star, Users, FileText, Bell, BellOff, Send, Pencil, Check, X, ListChecks, Shuffle } from "lucide-react";
+import { api, type Company, type Exhibition, type ProposalTemplate, type QualificationTemplate, type RoutingRule, type TeamMember, type User } from "../api";
 import { formatDate } from "../lib/utils";
 import { getPushStatus, subscribePush, unsubscribePush, sendTestPush, checkOverdueNow } from "../lib/push";
 
@@ -8,7 +8,7 @@ export default function SettingsPage({ user, company }: { user: User; company: C
   const [exhibitions, setExhibitions] = useState<Exhibition[]>([]);
   const [templates, setTemplates] = useState<ProposalTemplate[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
-  const [tab, setTab] = useState<"exhibitions" | "templates" | "team" | "notifications" | "telegram" | "amocrm">("exhibitions");
+  const [tab, setTab] = useState<"exhibitions" | "templates" | "quiz" | "routing" | "team" | "notifications" | "telegram" | "amocrm" | "bitrix24" | "hubspot">("exhibitions");
 
   const reload = () => {
     api.get<Exhibition[]>("/api/exhibitions").then((r) => setExhibitions(r.data));
@@ -32,15 +32,23 @@ export default function SettingsPage({ user, company }: { user: User; company: C
         <TabBtn active={tab === "team"} onClick={() => setTab("team")}>Команда</TabBtn>
         <TabBtn active={tab === "notifications"} onClick={() => setTab("notifications")}>Push</TabBtn>
         <TabBtn active={tab === "telegram"} onClick={() => setTab("telegram")}>Telegram</TabBtn>
+        <TabBtn active={tab === "quiz"} onClick={() => setTab("quiz")}>Анкеты</TabBtn>
+        <TabBtn active={tab === "routing"} onClick={() => setTab("routing")}>Маршруты</TabBtn>
         <TabBtn active={tab === "amocrm"} onClick={() => setTab("amocrm")}>amoCRM</TabBtn>
+        <TabBtn active={tab === "bitrix24"} onClick={() => setTab("bitrix24")}>Bitrix24</TabBtn>
+        <TabBtn active={tab === "hubspot"} onClick={() => setTab("hubspot")}>HubSpot</TabBtn>
       </div>
 
       {tab === "exhibitions" && <ExhibitionsTab items={exhibitions} reload={reload} />}
       {tab === "templates" && <TemplatesTab items={templates} reload={reload} />}
+      {tab === "quiz" && <QuizTab />}
+      {tab === "routing" && <RoutingTab team={team} />}
       {tab === "team" && <TeamTab items={team} currentUserId={user.id} reload={reload} />}
       {tab === "notifications" && <NotificationsTab />}
       {tab === "telegram" && <TelegramTab />}
       {tab === "amocrm" && <AmocrmTab />}
+      {tab === "bitrix24" && <Bitrix24Tab />}
+      {tab === "hubspot" && <HubspotTab />}
 
       <div className="card p-4">
         <div className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
@@ -547,6 +555,474 @@ function AmocrmTab() {
       <div className="text-xs text-slate-500 mt-2">
         Дальше в карточке любого контакта появится кнопка «Отправить в amoCRM» — создаст контакт + сделку + заметку.
       </div>
+    </div>
+  );
+}
+
+// ==================== Quiz tab (P0.1) ====================
+function QuizTab() {
+  const [items, setItems] = useState<QualificationTemplate[]>([]);
+  const [editing, setEditing] = useState<QualificationTemplate | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const reload = () =>
+    api.get<QualificationTemplate[]>("/api/qualification-templates").then((r) => setItems(r.data));
+
+  useEffect(() => {
+    reload();
+  }, []);
+
+  const remove = async (id: string) => {
+    if (!confirm("Удалить анкету?")) return;
+    await api.delete(`/api/qualification-templates/${id}`);
+    reload();
+  };
+
+  return (
+    <div className="card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+          <ListChecks className="inline mr-1" size={12} /> Анкеты квалификации
+        </div>
+        <button onClick={() => { setEditing(null); setCreating(true); }} className="btn-primary text-xs">
+          <Plus size={14} /> Создать
+        </button>
+      </div>
+
+      {(creating || editing) && (
+        <QuizEditor
+          initial={editing}
+          onClose={() => { setEditing(null); setCreating(false); }}
+          onSaved={() => { setEditing(null); setCreating(false); reload(); }}
+        />
+      )}
+
+      {items.length === 0 && !creating && (
+        <p className="text-sm text-slate-500">
+          Нет анкет. Создайте первую — она поможет квалифицировать B2B-лиды (бюджет, сроки, ЛПР).
+        </p>
+      )}
+
+      <ul className="space-y-2">
+        {items.map((t) => (
+          <li key={t.id} className="border border-slate-200 rounded-lg p-3 flex items-center justify-between">
+            <div>
+              <div className="font-medium text-sm">
+                {t.name} {t.is_default && <span className="text-xs text-amber-600">★ дефолт</span>}
+              </div>
+              <div className="text-xs text-slate-500">{t.questions.length} вопросов</div>
+            </div>
+            <div className="flex gap-1">
+              <button onClick={() => { setCreating(false); setEditing(t); }} className="btn-secondary text-xs">
+                <Pencil size={12} />
+              </button>
+              <button onClick={() => remove(t.id)} className="btn-danger text-xs">
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function QuizEditor({
+  initial,
+  onClose,
+  onSaved,
+}: {
+  initial: QualificationTemplate | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(initial?.name || "");
+  const [isDefault, setIsDefault] = useState(initial?.is_default || false);
+  const [json, setJson] = useState(
+    JSON.stringify(
+      initial?.questions || [
+        { id: "budget", type: "single", text: "Какой бюджет?", required: true,
+          options: [
+            { value: "small", label: "до 100к", score: 2 },
+            { value: "mid", label: "100к-1М", score: 6 },
+            { value: "big", label: "1М+", score: 10 },
+          ] },
+        { id: "timeline", type: "single", text: "Когда планируется решение?",
+          options: [
+            { value: "now", label: "Сейчас", score: 10 },
+            { value: "qtr", label: "В этом квартале", score: 7 },
+            { value: "year", label: "В этом году", score: 4 },
+            { value: "later", label: "Позже", score: 1 },
+          ] },
+        { id: "decision_maker", type: "bool", text: "Лицо принимающее решение?" },
+        { id: "interest", type: "rating", text: "Уровень интереса (1-5)" },
+      ],
+      null,
+      2,
+    ),
+  );
+  const [err, setErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setErr(null);
+    let questions;
+    try {
+      questions = JSON.parse(json);
+      if (!Array.isArray(questions)) throw new Error("Не массив");
+    } catch (e) {
+      setErr("Невалидный JSON: " + (e as Error).message);
+      return;
+    }
+    setSaving(true);
+    try {
+      if (initial) {
+        await api.patch(`/api/qualification-templates/${initial.id}`, {
+          name,
+          questions,
+          is_default: isDefault,
+        });
+      } else {
+        await api.post("/api/qualification-templates", {
+          name,
+          questions,
+          is_default: isDefault,
+        });
+      }
+      onSaved();
+    } catch (e: unknown) {
+      setErr((e as { response?: { data?: { detail?: string } } }).response?.data?.detail || "Ошибка");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border-2 border-brand-200 rounded-lg p-3 space-y-2 bg-brand-50/30">
+      <div className="flex items-center justify-between">
+        <strong className="text-sm">{initial ? "Редактирование" : "Новая анкета"}</strong>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={16} /></button>
+      </div>
+      <input className="input" placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} />
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
+        По умолчанию (показывать на capture)
+      </label>
+      <div className="text-xs text-slate-500">
+        Вопросы (JSON): id, type (single/multi/rating/text/number/bool), text, required, options[{`{value,label,score}`}], branch{`{if_value,goto}`}
+      </div>
+      <textarea
+        className="input font-mono text-xs"
+        rows={14}
+        value={json}
+        onChange={(e) => setJson(e.target.value)}
+      />
+      {err && <div className="text-rose-600 text-xs">{err}</div>}
+      <div className="flex gap-2">
+        <button onClick={save} disabled={saving} className="btn-primary text-sm flex-1">
+          {saving ? "Сохранение..." : "Сохранить"}
+        </button>
+        <button onClick={onClose} className="btn-secondary text-sm">Отмена</button>
+      </div>
+    </div>
+  );
+}
+
+// ==================== Routing rules tab (P1.7) ====================
+function RoutingTab({ team }: { team: TeamMember[] }) {
+  const [items, setItems] = useState<RoutingRule[]>([]);
+  const [creating, setCreating] = useState(false);
+
+  const reload = () => api.get<RoutingRule[]>("/api/routing-rules").then((r) => setItems(r.data));
+
+  useEffect(() => {
+    reload();
+  }, []);
+
+  const remove = async (id: string) => {
+    if (!confirm("Удалить правило?")) return;
+    await api.delete(`/api/routing-rules/${id}`);
+    reload();
+  };
+
+  const toggle = async (r: RoutingRule) => {
+    await api.patch(`/api/routing-rules/${r.id}`, { is_active: !r.is_active });
+    reload();
+  };
+
+  return (
+    <div className="card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+          <Shuffle className="inline mr-1" size={12} /> Маршрутизация лидов
+        </div>
+        <button onClick={() => setCreating(true)} className="btn-primary text-xs">
+          <Plus size={14} /> Создать правило
+        </button>
+      </div>
+
+      {creating && (
+        <RoutingEditor
+          team={team}
+          onClose={() => setCreating(false)}
+          onSaved={() => { setCreating(false); reload(); }}
+        />
+      )}
+
+      {items.length === 0 && !creating && (
+        <p className="text-sm text-slate-500">
+          Нет правил. Пример: «status = hot → назначить менеджеру X», «город = Москва → round-robin между командой».
+        </p>
+      )}
+
+      <ul className="space-y-2">
+        {items.map((r) => (
+          <li key={r.id} className="border border-slate-200 rounded-lg p-3 flex items-center justify-between">
+            <div>
+              <div className="font-medium text-sm">
+                {r.name} {!r.is_active && <span className="text-xs text-slate-400">(выключено)</span>}
+              </div>
+              <div className="text-xs text-slate-500">
+                {r.action_type} · приоритет {r.priority}
+              </div>
+            </div>
+            <div className="flex gap-1">
+              <button onClick={() => toggle(r)} className="btn-secondary text-xs">
+                {r.is_active ? "Выкл" : "Вкл"}
+              </button>
+              <button onClick={() => remove(r.id)} className="btn-danger text-xs">
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function RoutingEditor({
+  team,
+  onClose,
+  onSaved,
+}: {
+  team: TeamMember[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [field, setField] = useState("status");
+  const [op, setOp] = useState("eq");
+  const [value, setValue] = useState("hot");
+  const [actionType, setActionType] = useState<"assign" | "round_robin" | "tag">("assign");
+  const [assignUser, setAssignUser] = useState(team[0]?.id || "");
+  const [tagStatus, setTagStatus] = useState("hot");
+  const [priority, setPriority] = useState(100);
+  const [err, setErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setErr(null);
+    setSaving(true);
+    try {
+      const conditions = { all: [{ field, op, value }] };
+      let action_data: Record<string, unknown> = {};
+      if (actionType === "assign") action_data = { user_id: assignUser };
+      else if (actionType === "round_robin") action_data = { user_ids: team.filter((t) => t.is_active).map((t) => t.id) };
+      else action_data = { status: tagStatus };
+      await api.post("/api/routing-rules", {
+        name, priority, conditions, action_type: actionType, action_data, is_active: true,
+      });
+      onSaved();
+    } catch (e: unknown) {
+      setErr((e as { response?: { data?: { detail?: string } } }).response?.data?.detail || "Ошибка");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border-2 border-brand-200 rounded-lg p-3 space-y-2 bg-brand-50/30">
+      <div className="flex items-center justify-between">
+        <strong className="text-sm">Новое правило маршрутизации</strong>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={16} /></button>
+      </div>
+      <input className="input" placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} />
+      <div className="text-xs text-slate-500">Условие: ЕСЛИ</div>
+      <div className="grid grid-cols-3 gap-2">
+        <select className="input" value={field} onChange={(e) => setField(e.target.value)}>
+          <option value="status">status</option>
+          <option value="contact_type">contact_type</option>
+          <option value="city">city</option>
+          <option value="ai_score">ai_score</option>
+          <option value="qualification_answers.budget">budget (анкета)</option>
+        </select>
+        <select className="input" value={op} onChange={(e) => setOp(e.target.value)}>
+          <option value="eq">=</option>
+          <option value="neq">≠</option>
+          <option value="gte">≥</option>
+          <option value="lte">≤</option>
+          <option value="contains">содержит</option>
+        </select>
+        <input className="input" placeholder="значение" value={value} onChange={(e) => setValue(e.target.value)} />
+      </div>
+      <div className="text-xs text-slate-500">ТО действие:</div>
+      <select className="input" value={actionType} onChange={(e) => setActionType(e.target.value as "assign" | "round_robin" | "tag")}>
+        <option value="assign">Назначить на</option>
+        <option value="round_robin">Round-robin (вся активная команда)</option>
+        <option value="tag">Установить статус</option>
+      </select>
+      {actionType === "assign" && (
+        <select className="input" value={assignUser} onChange={(e) => setAssignUser(e.target.value)}>
+          {team.filter((t) => t.is_active).map((t) => (
+            <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
+          ))}
+        </select>
+      )}
+      {actionType === "tag" && (
+        <select className="input" value={tagStatus} onChange={(e) => setTagStatus(e.target.value)}>
+          <option value="hot">hot</option>
+          <option value="warm">warm</option>
+          <option value="cold">cold</option>
+        </select>
+      )}
+      <input
+        className="input"
+        type="number"
+        placeholder="Приоритет (выше = раньше)"
+        value={priority}
+        onChange={(e) => setPriority(Number(e.target.value))}
+      />
+      {err && <div className="text-rose-600 text-xs">{err}</div>}
+      <div className="flex gap-2">
+        <button onClick={save} disabled={saving || !name} className="btn-primary text-sm flex-1">
+          {saving ? "Сохранение..." : "Создать"}
+        </button>
+        <button onClick={onClose} className="btn-secondary text-sm">Отмена</button>
+      </div>
+    </div>
+  );
+}
+
+// ==================== Bitrix24 tab (P1.8) ====================
+function Bitrix24Tab() {
+  const [status, setStatus] = useState<{ connected: boolean; error?: string; user?: string } | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => api.get("/api/integrations/bitrix24/status").then((r) => setStatus(r.data));
+  useEffect(() => { refresh(); }, []);
+
+  const connect = async () => {
+    setErr(null); setBusy(true);
+    try {
+      await api.post("/api/integrations/bitrix24/connect", { webhook_url: webhookUrl });
+      setWebhookUrl("");
+      refresh();
+    } catch (e: unknown) {
+      setErr((e as { response?: { data?: { detail?: string } } }).response?.data?.detail || "Ошибка");
+    } finally { setBusy(false); }
+  };
+
+  const disconnect = async () => {
+    await api.post("/api/integrations/bitrix24/disconnect");
+    refresh();
+  };
+
+  return (
+    <div className="card p-4 space-y-3">
+      <div className="text-xs uppercase tracking-wider text-slate-400 font-semibold">Bitrix24</div>
+      <div className="text-xs text-slate-500 space-y-1">
+        <div>Создайте «Входящий вебхук» в Bitrix24:</div>
+        <ol className="list-decimal list-inside ml-2">
+          <li>Разработчикам → Другое → Входящий вебхук</li>
+          <li>Разрешить: CRM (crm)</li>
+          <li>Скопировать URL вида <code>https://&lt;portal&gt;.bitrix24.ru/rest/&lt;id&gt;/&lt;token&gt;/</code></li>
+        </ol>
+      </div>
+      {status?.connected ? (
+        <div className="space-y-2">
+          <div className="text-sm text-emerald-600">✅ Подключено{status.user ? ` (${status.user})` : ""}</div>
+          <button onClick={disconnect} className="btn-danger text-sm">Отключить</button>
+        </div>
+      ) : (
+        <>
+          {status?.error && <div className="text-xs text-rose-600">Ошибка: {status.error}</div>}
+          <input
+            className="input"
+            placeholder="https://yourportal.bitrix24.ru/rest/1/abc.../"
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+          />
+          {err && <div className="text-rose-600 text-xs">{err}</div>}
+          <button onClick={connect} disabled={busy || !webhookUrl} className="btn-primary text-sm">
+            {busy ? "Проверка..." : "Подключить"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ==================== HubSpot tab (P1.8) ====================
+function HubspotTab() {
+  const [status, setStatus] = useState<{ connected: boolean; error?: string; portal_id?: number } | null>(null);
+  const [token, setToken] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => api.get("/api/integrations/hubspot/status").then((r) => setStatus(r.data));
+  useEffect(() => { refresh(); }, []);
+
+  const connect = async () => {
+    setErr(null); setBusy(true);
+    try {
+      await api.post("/api/integrations/hubspot/connect", { access_token: token });
+      setToken("");
+      refresh();
+    } catch (e: unknown) {
+      setErr((e as { response?: { data?: { detail?: string } } }).response?.data?.detail || "Ошибка");
+    } finally { setBusy(false); }
+  };
+
+  const disconnect = async () => {
+    await api.post("/api/integrations/hubspot/disconnect");
+    refresh();
+  };
+
+  return (
+    <div className="card p-4 space-y-3">
+      <div className="text-xs uppercase tracking-wider text-slate-400 font-semibold">HubSpot</div>
+      <div className="text-xs text-slate-500 space-y-1">
+        <div>Создайте Private App:</div>
+        <ol className="list-decimal list-inside ml-2">
+          <li>Settings → Integrations → Private Apps → Create</li>
+          <li>Scopes: crm.objects.contacts.write, crm.objects.deals.write</li>
+          <li>Скопировать access token</li>
+        </ol>
+      </div>
+      {status?.connected ? (
+        <div className="space-y-2">
+          <div className="text-sm text-emerald-600">✅ Подключено (portal {status.portal_id})</div>
+          <button onClick={disconnect} className="btn-danger text-sm">Отключить</button>
+        </div>
+      ) : (
+        <>
+          {status?.error && <div className="text-xs text-rose-600">Ошибка: {status.error}</div>}
+          <input
+            className="input"
+            type="password"
+            placeholder="pat-eu1-..."
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+          {err && <div className="text-rose-600 text-xs">{err}</div>}
+          <button onClick={connect} disabled={busy || !token} className="btn-primary text-sm">
+            {busy ? "Проверка..." : "Подключить"}
+          </button>
+        </>
+      )}
     </div>
   );
 }

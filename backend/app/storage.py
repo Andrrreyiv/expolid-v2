@@ -23,3 +23,17 @@ def save_upload(file: IO[bytes], original_name: str | None = None) -> tuple[str,
 
 def absolute(rel: str) -> Path:
     return settings.upload_path / rel
+
+
+def delete_upload(rel: str) -> bool:
+    """Удаляет файл из upload-каталога. True если удалили, False иначе."""
+    if not rel:
+        return False
+    try:
+        p = settings.upload_path / rel
+        if p.exists() and p.is_file():
+            p.unlink()
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
