@@ -127,7 +127,11 @@ def apply_routing_rules(db: Session, contact, user) -> None:
                     .filter(UserModel.id.in_(uids), UserModel.company_id == user.company_id)
                     .all()
                 )
-                valid_ids = [v[0] for v in valid]
+                # Preserve the user-configured order from action_data["user_ids"].
+                # SQL IN() doesn't guarantee result ordering matches the input list,
+                # so reorder by `uids` to keep round-robin assignment deterministic.
+                valid_set = {v[0] for v in valid}
+                valid_ids = [uid for uid in uids if uid in valid_set]
                 if valid_ids:
                     idx = (rule.last_assigned_idx or 0) % len(valid_ids)
                     contact.assigned_user_id = valid_ids[idx]
