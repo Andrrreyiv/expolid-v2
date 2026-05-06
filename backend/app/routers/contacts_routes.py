@@ -312,6 +312,17 @@ def update_contact(
         )
         if not ok:
             raise HTTPException(status_code=400, detail="Выставка не из вашей компании")
+    if "qualification_template_id" in data and data["qualification_template_id"]:
+        ok = (
+            db.query(QualificationTemplate)
+            .filter(
+                QualificationTemplate.id == data["qualification_template_id"],
+                QualificationTemplate.company_id == user.company_id,
+            )
+            .first()
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail="Анкета не из вашей компании")
     for k, v in data.items():
         setattr(c, k, v)
     db.commit()

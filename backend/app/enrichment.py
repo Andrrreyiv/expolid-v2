@@ -35,7 +35,7 @@ def _domain_from_website(website: Optional[str]) -> Optional[str]:
     s = website.strip().lower()
     s = re.sub(r"^https?://", "", s)
     s = s.split("/", 1)[0]
-    s = s.lstrip("www.")
+    s = re.sub(r"^www\.", "", s)
     return s or None
 
 
