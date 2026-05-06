@@ -128,11 +128,17 @@ def compute_qualification_score(
     for q in questions:
         qid = q.get("id")
         weight = float(q.get("score_weight") or 1.0)
+        qtype = q.get("type")
         options = q.get("options") or []
-        # Maximum possible for this question
+        # Maximum possible for this question:
+        #   - single/bool/text/number: only one option can be picked → max(scores)
+        #   - multi: every option can be selected at once → sum(scores)
         opt_scores = [int(o.get("score") or 0) for o in options]
         if opt_scores:
-            max_total += max(opt_scores) * weight
+            if qtype == "multi":
+                max_total += sum(opt_scores) * weight
+            else:
+                max_total += max(opt_scores) * weight
         ans = answers.get(qid)
         if ans is None:
             continue

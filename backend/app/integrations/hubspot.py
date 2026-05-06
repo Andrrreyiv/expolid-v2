@@ -77,7 +77,7 @@ def _client(rec: CompanyIntegration) -> httpx.Client:
     cfg = _config(rec)
     return httpx.Client(
         base_url=BASE_URL,
-        headers={"Authorization": f"Bearer {cfg['access_token']}"},
+        headers={"Authorization": f"Bearer {cfg.get('access_token', '')}"},
         timeout=20.0,
     )
 

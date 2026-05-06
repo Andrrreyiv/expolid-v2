@@ -389,9 +389,9 @@ def capture_contact(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if not (card_image or voice or notes_text or capture_source == "badge"):
+    if not (card_image or voice or notes_text or capture_source or badge_id):
         raise HTTPException(
-            status_code=400, detail="Нужно хотя бы одно: фото визитки, голос или заметка"
+            status_code=400, detail="Нужно хотя бы одно: фото визитки, голос, заметка или отсканированный бейдж"
         )
 
     # Парсим qualification answers (приходят как JSON-строка multipart)

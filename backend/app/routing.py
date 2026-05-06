@@ -134,7 +134,11 @@ def apply_routing_rules(db: Session, contact, user) -> None:
                     rule.last_assigned_idx = idx + 1
                     return
         elif atype == "tag":
+            # Whitelist of safe Contact fields the action can override.
+            # NEVER include company_id/owner_user_id/id/created_at/etc. — those are
+            # tenant-scoped or audit fields and must not be settable via routing rules.
+            _SAFE_TAG_FIELDS = {"status", "contact_type", "pavilion", "stand"}
             for k, v in adata.items():
-                if hasattr(contact, k):
+                if k in _SAFE_TAG_FIELDS:
                     setattr(contact, k, v)
             return
