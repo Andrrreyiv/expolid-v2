@@ -88,9 +88,15 @@ class OverdueResult(_Base):
 @router.post("/check-overdue", response_model=OverdueResult)
 def check_overdue(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Найти просроченные задачи моего пользователя/компании и отправить push.
-    Идемпотентно: помечает Task.last_push_at, чтобы не спамить.
-    Здесь упрощённая версия — фронтенд может вызывать раз в N минут."""
+
+    Идемпотентно: для каждой задачи проверяется Task.last_push_at — если push
+    уже отправлялся за последние PUSH_COOLDOWN_HOURS, повторно не отсылаем.
+    """
+    from datetime import timedelta
+
+    PUSH_COOLDOWN_HOURS = 12
     now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=PUSH_COOLDOWN_HOURS)
     q = (
         db.query(Task)
         .filter(
@@ -106,6 +112,9 @@ def check_overdue(user: User = Depends(get_current_user), db: Session = Depends(
         target = t.assignee_user_id
         if not target:
             continue
+        if t.last_push_at and t.last_push_at >= cutoff:
+            # Push уже отправлялся недавно, пропускаем чтобы не спамить.
+            continue
         s = push.send_to_user(
             db,
             target,
@@ -113,5 +122,8 @@ def check_overdue(user: User = Depends(get_current_user), db: Session = Depends(
             t.title or "Связаться с контактом",
             url=f"/contacts/{t.contact_id}" if t.contact_id else "/tasks",
         )
+        if s:
+            t.last_push_at = now
         sent += s
+    db.commit()
     return OverdueResult(sent=sent, overdue=len(tasks))

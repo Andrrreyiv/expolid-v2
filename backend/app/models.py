@@ -167,6 +167,7 @@ class Task(Base):
     due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     is_done: Mapped[bool] = mapped_column(Boolean, default=False)
     done_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_push_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     contact: Mapped[Optional[Contact]] = relationship(back_populates="tasks")

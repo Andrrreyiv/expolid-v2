@@ -6,7 +6,27 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..auth import get_current_user
 from ..db import get_db
-from ..models import Task, User
+from ..models import Contact, Task, User
+
+
+def _validate_task_fk(db: Session, user: User, contact_id, assignee_user_id):
+    """Проверяем, что contact_id и assignee_user_id принадлежат той же компании."""
+    if contact_id:
+        ok = (
+            db.query(Contact)
+            .filter(Contact.id == contact_id, Contact.company_id == user.company_id)
+            .first()
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail="Контакт не из вашей компании")
+    if assignee_user_id:
+        ok = (
+            db.query(User)
+            .filter(User.id == assignee_user_id, User.company_id == user.company_id)
+            .first()
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail="Исполнитель не из вашей компании")
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -29,6 +49,7 @@ def create_task(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    _validate_task_fk(db, user, payload.contact_id, payload.assignee_user_id)
     t = Task(
         company_id=user.company_id,
         contact_id=payload.contact_id,
@@ -57,6 +78,7 @@ def update_task(
     if not t:
         raise HTTPException(status_code=404, detail="Задача не найдена")
     data = payload.model_dump(exclude_unset=True)
+    _validate_task_fk(db, user, data.get("contact_id"), data.get("assignee_user_id"))
     for k, v in data.items():
         setattr(t, k, v)
     if t.is_done and not t.done_at:
