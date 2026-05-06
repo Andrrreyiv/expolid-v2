@@ -67,6 +67,12 @@ def remove_member(
     )
     if not target:
         raise HTTPException(status_code=404, detail="Не найден")
+    # Менеджер не может деактивировать владельца (иначе блокировка аккаунта).
+    if target.role == "owner" and user.role != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail="Только владелец может деактивировать другого владельца",
+        )
     target.is_active = False
     db.commit()
     return {"ok": True}

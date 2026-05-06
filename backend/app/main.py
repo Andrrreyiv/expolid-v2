@@ -48,6 +48,12 @@ def _migrate_add_columns() -> None:
                     default = f" DEFAULT '{val}'"
                 else:
                     default = f" DEFAULT {val}"
+            elif not col.nullable:
+                # SQLite запрещает ALTER TABLE ADD COLUMN ... NOT NULL без DEFAULT,
+                # если в таблице есть строки. Для callable-defaults (uuid, datetime)
+                # значение в DDL подставить нельзя — добавляем колонку как NULLABLE,
+                # дефолт всё равно поставится моделью при следующих INSERT.
+                null = ""
             with engine.begin() as conn:
                 conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type}{null}{default}'))
 

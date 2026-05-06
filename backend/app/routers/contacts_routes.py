@@ -105,6 +105,26 @@ def update_contact(
         raise HTTPException(status_code=404, detail="Контакт не найден")
     _ensure_visible(c, user)
     data = payload.model_dump(exclude_unset=True)
+    # Валидируем FK, чтобы нельзя было привязать контакт к чужой компании
+    if "assigned_user_id" in data and data["assigned_user_id"]:
+        ok = (
+            db.query(User)
+            .filter(User.id == data["assigned_user_id"], User.company_id == user.company_id)
+            .first()
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail="Менеджер не из вашей компании")
+    if "exhibition_id" in data and data["exhibition_id"]:
+        ok = (
+            db.query(Exhibition)
+            .filter(
+                Exhibition.id == data["exhibition_id"],
+                Exhibition.company_id == user.company_id,
+            )
+            .first()
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail="Выставка не из вашей компании")
     for k, v in data.items():
         setattr(c, k, v)
     db.commit()

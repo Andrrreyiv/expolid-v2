@@ -13,7 +13,6 @@ from ..auth import get_current_user
 
 ALGORITHM = "HS256"
 from ..config import get_settings
-from ..db import get_db
 from ..events import bus
 from ..models import User
 
@@ -35,9 +34,17 @@ def _user_from_token(token: str, db: Session) -> User | None:
 @router.get("/stream")
 async def stream(
     token: Annotated[str, Query(description="JWT access token")],
-    db: Session = Depends(get_db),
 ):
-    user = _user_from_token(token, db)
+    # Open and close a short-lived DB session just for auth, чтобы не держать
+    # коннект к БД на всё время SSE-стрима (часы/дни). Тело генератора в БД не ходит.
+    from ..db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        user = _user_from_token(token, db)
+    finally:
+        db.close()
+
     if not user:
         return StreamingResponse(iter([": auth-error\n\n"]), media_type="text/event-stream")
 
