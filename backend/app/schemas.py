@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -108,6 +110,13 @@ class ContactBase(BaseModel):
 class ContactCreate(ContactBase):
     exhibition_id: Optional[str] = None
     notes_raw: Optional[str] = None
+    qualification_template_id: Optional[str] = None
+    qualification_answers: Optional[dict[str, Any]] = None
+    consent_given: Optional[bool] = None
+    consent_text_version: Optional[str] = None
+    consent_source: Optional[str] = None
+    capture_source: Optional[str] = None
+    badge_id: Optional[str] = None
 
 
 class ContactUpdate(BaseModel):
@@ -133,6 +142,8 @@ class ContactUpdate(BaseModel):
     stand: Optional[str] = None
     exhibition_id: Optional[str] = None
     assigned_user_id: Optional[str] = None
+    qualification_template_id: Optional[str] = None
+    qualification_answers: Optional[dict[str, Any]] = None
 
 
 class ContactMediaOut(_Base):
@@ -173,6 +184,16 @@ class ContactOut(_Base):
     linked_contact_id: Optional[str] = None
     pavilion: Optional[str] = None
     stand: Optional[str] = None
+    qualification_template_id: Optional[str] = None
+    qualification_answers: Optional[dict[str, Any]] = None
+    consent_given_at: Optional[datetime] = None
+    consent_text_version: Optional[str] = None
+    consent_source: Optional[str] = None
+    erased_at: Optional[datetime] = None
+    capture_source: Optional[str] = None
+    badge_id: Optional[str] = None
+    enrichment_data: Optional[dict[str, Any]] = None
+    enriched_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     media: list[ContactMediaOut] = []
@@ -281,6 +302,127 @@ class AICaptureProcessResponse(BaseModel):
     ai_score: Optional[int] = None
     ai_score_reason: Optional[str] = None
     qr_payload: Optional[str] = None
+
+
+# ---------- Qualification (P0.1) ----------
+class QualificationOption(BaseModel):
+    value: str
+    label: str
+    score: Optional[int] = 0
+
+
+class QualificationQuestion(BaseModel):
+    id: str
+    type: str  # single|multi|rating|text|number|bool
+    text: str
+    required: bool = False
+    options: Optional[list[QualificationOption]] = None
+    branch: Optional[dict[str, Any]] = None  # P1.5: {"if_value": "X", "goto": "q3"}
+    score_weight: Optional[float] = 1.0
+
+
+class QualificationTemplateCreate(BaseModel):
+    name: str
+    questions: list[QualificationQuestion]
+    is_default: bool = False
+
+
+class QualificationTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    questions: Optional[list[QualificationQuestion]] = None
+    is_default: Optional[bool] = None
+
+
+class QualificationTemplateOut(_Base):
+    id: str
+    name: str
+    questions: list[QualificationQuestion]
+    is_default: bool
+    created_at: datetime
+
+
+# ---------- Routing rules (P1.7) ----------
+class RoutingRuleCreate(BaseModel):
+    name: str
+    priority: int = 100
+    conditions: dict[str, Any]
+    action_type: str  # assign|round_robin|tag
+    action_data: dict[str, Any]
+    is_active: bool = True
+
+
+class RoutingRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    priority: Optional[int] = None
+    conditions: Optional[dict[str, Any]] = None
+    action_type: Optional[str] = None
+    action_data: Optional[dict[str, Any]] = None
+    is_active: Optional[bool] = None
+
+
+class RoutingRuleOut(_Base):
+    id: str
+    name: str
+    priority: int
+    conditions: dict[str, Any]
+    action_type: str
+    action_data: dict[str, Any]
+    is_active: bool
+    created_at: datetime
+
+
+# ---------- Duplicate / merge (P0.3) ----------
+class DuplicateCandidate(_Base):
+    id: str
+    name: str
+    contact_company: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    match_reasons: list[str] = []
+    score: int = 0
+    created_at: datetime
+
+
+class MergeRequest(BaseModel):
+    primary_id: str
+    secondary_ids: list[str]
+
+
+# ---------- Enrichment (P1.6) ----------
+class EnrichmentResult(BaseModel):
+    inn: Optional[str] = None
+    ogrn: Optional[str] = None
+    full_name: Optional[str] = None  # юр. название
+    short_name: Optional[str] = None
+    address: Optional[str] = None
+    okved: Optional[str] = None
+    okved_text: Optional[str] = None
+    head_name: Optional[str] = None
+    head_role: Optional[str] = None
+    employees_range: Optional[str] = None
+    is_active: Optional[bool] = None
+    website_title: Optional[str] = None
+    website_description: Optional[str] = None
+    website_keywords: Optional[str] = None
+    sources: list[str] = []
+
+
+# ---------- Badge scan (P0.2) ----------
+class BadgeParseRequest(BaseModel):
+    payload: str  # raw QR/barcode/URL string
+
+
+class BadgeParseResponse(BaseModel):
+    name: Optional[str] = None
+    contact_company: Optional[str] = None
+    role_title: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    telegram: Optional[str] = None
+    badge_id: Optional[str] = None
+    capture_source: str = "badge"  # vcard|url|barcode|unknown
+    raw_payload: str
 
 
 # ---------- Dashboard ----------

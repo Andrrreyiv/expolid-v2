@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Camera, Mic, Square, Upload, Image as ImageIcon, Loader2, X, QrCode, MapPin } from "lucide-react";
+import { ArrowLeft, Camera, Mic, Square, Upload, Image as ImageIcon, Loader2, X, QrCode, MapPin, Shield } from "lucide-react";
 import jsQR from "jsqr";
-import { api, type Contact, type Exhibition } from "../api";
+import { api, type BadgeParseResponse, type Contact, type Exhibition, type QualificationTemplate } from "../api";
 import { parseQrContact, type ContactFromQr } from "../lib/vcard";
 import { enqueueCapture, syncPending } from "../lib/offline";
 
@@ -42,6 +42,21 @@ export default function Capture() {
   const [contactType, setContactType] = useState("client");
   const [status, setStatus] = useState("warm");
 
+  // Quiz (P0.1)
+  const [quizTemplates, setQuizTemplates] = useState<QualificationTemplate[]>([]);
+  const [quizTemplateId, setQuizTemplateId] = useState<string>("");
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, unknown>>({});
+
+  // Consent (P0.4)
+  const [consentGiven, setConsentGiven] = useState(false);
+  const consentTextVersion = "2026-04-27-v1";
+
+  // Badge scan (P0.2)
+  const [badgeScanning, setBadgeScanning] = useState(false);
+  const [badgePrefill, setBadgePrefill] = useState<BadgeParseResponse | null>(null);
+  const [badgeId, setBadgeId] = useState<string>("");
+  const [captureSource, setCaptureSource] = useState<string>("");
+
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,7 +65,43 @@ export default function Capture() {
       const active = r.data.find((e) => e.is_active);
       if (active) setExhibitionId(active.id);
     });
+    api
+      .get<QualificationTemplate[]>("/api/qualification-templates")
+      .then((r) => {
+        setQuizTemplates(r.data);
+        const def = r.data.find((t) => t.is_default) || r.data[0];
+        if (def) setQuizTemplateId(def.id);
+      })
+      .catch(() => undefined);
   }, []);
+
+  const activeQuizTemplate = useMemo(
+    () => quizTemplates.find((t) => t.id === quizTemplateId) || null,
+    [quizTemplates, quizTemplateId],
+  );
+
+  // Branching logic (P1.5): hide questions whose previous "branch.if_value/goto" routes around them.
+  const visibleQuizQuestions = useMemo(() => {
+    if (!activeQuizTemplate) return [];
+    const qs = activeQuizTemplate.questions;
+    let skipUntil: string | null = null;
+    const out: typeof qs = [];
+    for (const q of qs) {
+      if (skipUntil) {
+        if (q.id === skipUntil) {
+          skipUntil = null;
+        } else {
+          continue;
+        }
+      }
+      out.push(q);
+      const ans = quizAnswers[q.id];
+      if (q.branch?.if_value && q.branch?.goto && ans === q.branch.if_value) {
+        skipUntil = q.branch.goto;
+      }
+    }
+    return out;
+  }, [activeQuizTemplate, quizAnswers]);
 
   // ---- Card ----
   const onCardChange = async (file: File | null) => {
@@ -125,18 +176,94 @@ export default function Capture() {
     setVoiceUrl(URL.createObjectURL(file));
   };
 
+  // ---- Badge scan (P0.2) ----
+  const onBadgeFile = async (file: File | null) => {
+    if (!file) return;
+    setBadgeScanning(true);
+    setErr(null);
+    try {
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
+      await new Promise((res) => {
+        img.onload = res;
+        img.onerror = res;
+      });
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const ctx = c.getContext("2d");
+      let payload: string | null = null;
+      if (ctx && img.naturalWidth > 0) {
+        ctx.drawImage(img, 0, 0);
+        const data = ctx.getImageData(0, 0, c.width, c.height);
+        const code = jsQR(data.data, data.width, data.height);
+        if (code?.data) payload = code.data;
+      }
+      if (!payload) {
+        setErr("QR-код не найден на бейдже. Попробуйте сделать фото при лучшем освещении.");
+        setBadgeScanning(false);
+        return;
+      }
+      const r = await api.post<BadgeParseResponse>("/api/badge/parse", { payload });
+      setBadgePrefill(r.data);
+      setCaptureSource(r.data.capture_source || "badge");
+      if (r.data.badge_id) setBadgeId(r.data.badge_id);
+    } catch (e: unknown) {
+      setErr((e as { message?: string }).message || "Не удалось распарсить бейдж");
+    } finally {
+      setBadgeScanning(false);
+    }
+  };
+
+  const updateQuizAnswer = (qid: string, val: unknown) => {
+    setQuizAnswers((a) => ({ ...a, [qid]: val }));
+  };
+
   // ---- Submit ----
   const submit = async () => {
     setErr(null);
-    if (!cardFile && !voiceFile && !notesText.trim()) {
-      setErr("Добавьте хотя бы одно: фото визитки, голосовую заметку или текст");
+    if (!cardFile && !voiceFile && !notesText.trim() && !badgePrefill) {
+      setErr("Добавьте хотя бы одно: фото визитки, бейдж, голос или текст");
       return;
+    }
+    // Validate required quiz answers
+    if (activeQuizTemplate) {
+      const missing = visibleQuizQuestions.find(
+        (q) => q.required && (quizAnswers[q.id] === undefined || quizAnswers[q.id] === ""),
+      );
+      if (missing) {
+        setErr(`Ответьте на обязательный вопрос: ${missing.text}`);
+        return;
+      }
     }
     setStep("processing");
 
     const fd = new FormData();
     if (exhibitionId) fd.append("exhibition_id", exhibitionId);
     if (notesText.trim()) fd.append("notes_text", notesText.trim());
+    // Quiz (P0.1)
+    if (quizTemplateId && Object.keys(quizAnswers).length > 0) {
+      fd.append("qualification_template_id", quizTemplateId);
+      fd.append("qualification_answers_json", JSON.stringify(quizAnswers));
+    }
+    // Consent (P0.4)
+    if (consentGiven) {
+      fd.append("consent_given", "true");
+      fd.append("consent_text_version", consentTextVersion);
+      fd.append("consent_source", "capture");
+    }
+    // Badge prefill (P0.2)
+    if (badgeId) fd.append("badge_id", badgeId);
+    if (captureSource) fd.append("capture_source", captureSource);
+    if (badgePrefill) {
+      if (badgePrefill.name && !qrPrefill?.name) fd.append("prefill_name", badgePrefill.name);
+      if (badgePrefill.email && !qrPrefill?.email) fd.append("prefill_email", badgePrefill.email);
+      if (badgePrefill.phone && !qrPrefill?.phone) fd.append("prefill_phone", badgePrefill.phone);
+      if (badgePrefill.contact_company && !qrPrefill?.contact_company) fd.append("prefill_company", badgePrefill.contact_company);
+      if (badgePrefill.role_title && !qrPrefill?.role_title) fd.append("prefill_role", badgePrefill.role_title);
+      if (badgePrefill.website && !qrPrefill?.website) fd.append("prefill_website", badgePrefill.website);
+      if (badgePrefill.telegram && !qrPrefill?.telegram) fd.append("prefill_telegram", badgePrefill.telegram);
+    }
     fd.append("talked_to_card_owner", String(talkedToOwner));
     if (!talkedToOwner) {
       if (talkedToName) fd.append("talked_to_name", talkedToName);
@@ -280,6 +407,51 @@ export default function Capture() {
                 />
               </div>
             )}
+          </Section>
+
+          <Section title={<span className="flex items-center gap-1"><QrCode size={12} /> Бейдж выставки (QR/штрихкод)</span>}>
+            {badgePrefill ? (
+              <div className="text-xs bg-emerald-50 text-emerald-700 rounded-lg p-2 flex items-start gap-2">
+                <QrCode size={14} className="mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <div className="font-semibold">Бейдж распознан ({badgePrefill.capture_source})</div>
+                  <ul className="mt-1 space-y-0.5">
+                    {badgePrefill.name && <li>👤 {badgePrefill.name}</li>}
+                    {badgePrefill.contact_company && <li>🏢 {badgePrefill.contact_company}</li>}
+                    {badgePrefill.role_title && <li>💼 {badgePrefill.role_title}</li>}
+                    {badgePrefill.email && <li>✉️ {badgePrefill.email}</li>}
+                    {badgePrefill.phone && <li>📞 {badgePrefill.phone}</li>}
+                    {badgePrefill.badge_id && <li>🎫 ID: {badgePrefill.badge_id}</li>}
+                  </ul>
+                </div>
+                <button
+                  onClick={() => { setBadgePrefill(null); setBadgeId(""); setCaptureSource(""); }}
+                  className="text-rose-600 hover:text-rose-800"
+                  aria-label="Remove"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <FileButton
+                  icon={badgeScanning ? <Loader2 size={20} className="animate-spin" /> : <Camera size={20} />}
+                  label="Камера"
+                  accept="image/*"
+                  capture="environment"
+                  onFile={onBadgeFile}
+                />
+                <FileButton
+                  icon={<ImageIcon size={20} />}
+                  label="Файл"
+                  accept="image/*"
+                  onFile={onBadgeFile}
+                />
+              </div>
+            )}
+            <p className="text-xs text-slate-500 mt-1">
+              Сканирует QR-код на пластиковом бейдже (ExpoCenter, Crocus, Messe).
+            </p>
           </Section>
 
           <Section title="Голосовая заметка">
@@ -428,6 +600,120 @@ export default function Capture() {
                 </Chip>
               ))}
             </div>
+          </Section>
+
+          {activeQuizTemplate && visibleQuizQuestions.length > 0 && (
+            <Section title="Анкета квалификации">
+              {quizTemplates.length > 1 && (
+                <select
+                  className="input mb-3"
+                  value={quizTemplateId}
+                  onChange={(e) => { setQuizTemplateId(e.target.value); setQuizAnswers({}); }}
+                >
+                  {quizTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              )}
+              <div className="space-y-3">
+                {visibleQuizQuestions.map((q) => (
+                  <div key={q.id}>
+                    <div className="text-sm font-medium text-slate-700 mb-1">
+                      {q.text}
+                      {q.required && <span className="text-rose-500 ml-1">*</span>}
+                    </div>
+                    {q.type === "single" && q.options && (
+                      <div className="flex flex-wrap gap-2">
+                        {q.options.map((opt) => (
+                          <Chip
+                            key={opt.value}
+                            active={quizAnswers[q.id] === opt.value}
+                            onClick={() => updateQuizAnswer(q.id, opt.value)}
+                          >
+                            {opt.label}
+                          </Chip>
+                        ))}
+                      </div>
+                    )}
+                    {q.type === "multi" && q.options && (
+                      <div className="flex flex-wrap gap-2">
+                        {q.options.map((opt) => {
+                          const arr = (quizAnswers[q.id] as string[] | undefined) || [];
+                          const checked = arr.includes(opt.value);
+                          return (
+                            <Chip
+                              key={opt.value}
+                              active={checked}
+                              onClick={() => {
+                                const next = checked
+                                  ? arr.filter((v) => v !== opt.value)
+                                  : [...arr, opt.value];
+                                updateQuizAnswer(q.id, next);
+                              }}
+                            >
+                              {opt.label}
+                            </Chip>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {q.type === "rating" && (
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <button
+                            key={n}
+                            onClick={() => updateQuizAnswer(q.id, n)}
+                            className={`w-9 h-9 rounded-lg text-sm font-semibold ${
+                              (quizAnswers[q.id] as number) === n
+                                ? "bg-brand-700 text-white"
+                                : "bg-white border border-slate-200"
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {q.type === "bool" && (
+                      <div className="flex gap-2">
+                        <Chip active={quizAnswers[q.id] === true} onClick={() => updateQuizAnswer(q.id, true)}>Да</Chip>
+                        <Chip active={quizAnswers[q.id] === false} onClick={() => updateQuizAnswer(q.id, false)}>Нет</Chip>
+                      </div>
+                    )}
+                    {q.type === "text" && (
+                      <input
+                        className="input"
+                        value={(quizAnswers[q.id] as string) || ""}
+                        onChange={(e) => updateQuizAnswer(q.id, e.target.value)}
+                      />
+                    )}
+                    {q.type === "number" && (
+                      <input
+                        type="number"
+                        className="input"
+                        value={(quizAnswers[q.id] as number | string) || ""}
+                        onChange={(e) => updateQuizAnswer(q.id, e.target.value ? Number(e.target.value) : "")}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          <Section title={<span className="flex items-center gap-1"><Shield size={12} /> Согласие на обработку ПДн (152-ФЗ / GDPR)</span>}>
+            <label className="flex items-start gap-2 cursor-pointer text-sm">
+              <input
+                type="checkbox"
+                checked={consentGiven}
+                onChange={(e) => setConsentGiven(e.target.checked)}
+                className="w-4 h-4 mt-0.5"
+              />
+              <span>
+                Контакт согласен на обработку персональных данных согласно 152-ФЗ (РФ) / GDPR.
+                Версия согласия: <code className="text-xs">{consentTextVersion}</code>.
+              </span>
+            </label>
           </Section>
 
           {exhibitions.length > 0 && (

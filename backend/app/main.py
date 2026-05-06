@@ -11,11 +11,15 @@ from sqlalchemy import inspect, text
 from .db import Base, engine
 from .routers import (
     auth_routes,
+    badge_routes,
     contacts_routes,
     dashboard_routes,
+    enrichment_routes,
     events_routes,
     exhibitions_routes,
     push_routes,
+    qualification_routes,
+    routing_routes,
     telegram_routes,
     integrations_routes,
     export_routes,
@@ -104,6 +108,10 @@ app.include_router(events_routes.router)
 app.include_router(push_routes.router)
 app.include_router(telegram_routes.router)
 app.include_router(integrations_routes.router)
+app.include_router(qualification_routes.router)
+app.include_router(routing_routes.router)
+app.include_router(badge_routes.router)
+app.include_router(enrichment_routes.router)
 
 
 @app.get("/api/health")
