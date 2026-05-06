@@ -14,6 +14,7 @@ import base64
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -162,6 +163,30 @@ def ocr_business_card(file_path: str) -> dict[str, Any]:
     return {}
 
 
+def _gemini_post_with_retry(body: dict[str, Any]) -> httpx.Response:
+    """POST to Gemini generateContent with one retry on 429.
+
+    Free tier limits to 20 RPM on gemini-2.5-flash; under bursts a single
+    retry after the API-suggested delay covers most cases.
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent"
+    headers = {"x-goog-api-key": settings.gemini_api_key, "content-type": "application/json"}
+    r = httpx.post(url, headers=headers, json=body, timeout=60.0)
+    if r.status_code != 429:
+        return r
+    # Try to honor server-suggested delay, capped to keep latency sane.
+    delay = 5.0
+    try:
+        msg = r.json().get("error", {}).get("message", "")
+        m = re.search(r"retry in ([0-9.]+)s", msg)
+        if m:
+            delay = min(float(m.group(1)) + 0.5, 15.0)
+    except (ValueError, KeyError, AttributeError):
+        pass
+    time.sleep(delay)
+    return httpx.post(url, headers=headers, json=body, timeout=60.0)
+
+
 def _gemini_vision_json(file_path: str, system: str, user: str) -> dict[str, Any]:
     img_b64 = base64.b64encode(Path(file_path).read_bytes()).decode()
     body = {
@@ -175,12 +200,7 @@ def _gemini_vision_json(file_path: str, system: str, user: str) -> dict[str, Any
         }],
         "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"},
     }
-    r = httpx.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
-        headers={"x-goog-api-key": settings.gemini_api_key, "content-type": "application/json"},
-        json=body,
-        timeout=60.0,
-    )
+    r = _gemini_post_with_retry(body)
     r.raise_for_status()
     data = r.json()
     text = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -223,12 +243,7 @@ def _gemini_chat_json(system: str, user: str) -> dict[str, Any]:
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {"temperature": 0.4, "responseMimeType": "application/json"},
     }
-    r = httpx.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
-        headers={"x-goog-api-key": settings.gemini_api_key, "content-type": "application/json"},
-        json=body,
-        timeout=60.0,
-    )
+    r = _gemini_post_with_retry(body)
     r.raise_for_status()
     text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
     return json.loads(_strip_json(text))
